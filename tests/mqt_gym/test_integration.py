@@ -29,6 +29,10 @@ from benchpress.mqt_gym.utils.io import (
     qasm_uses_classical_control,
     target_unsupported_control_flow_reason,
 )
+from benchpress.mqt_gym.utils.mqt_backend_utils import (
+    coupling_edges,
+    get_mqt_bench_backend,
+)
 
 _CX_MEASURED = (
     "OPENQASM 2.0;\n"
@@ -40,6 +44,16 @@ _CX_MEASURED = (
     "measure q[0] -> c[0];\n"
     "measure q[1] -> c[1];\n"
 )
+
+
+@pytest.mark.parametrize("backend_name", ["fake_torino", "FakeTorino"])
+def test_mqt_fake_backend_discovery_accepts_supported_name_formats(backend_name):
+    backend = get_mqt_bench_backend(backend_name)
+
+    assert type(backend).__name__ == "FakeTorino"
+    assert backend.num_qubits == 133
+    assert backend.two_q_gate_type == "cz"
+    assert len(coupling_edges(backend)) == 300
 
 
 def test_mqt_ir_builder_uses_supported_typed_mlir_bridge():

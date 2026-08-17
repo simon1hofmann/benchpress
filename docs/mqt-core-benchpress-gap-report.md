@@ -105,8 +105,8 @@ Current focused evidence uses a build of the exact pinned `b401a064` source
 tree. The PR head used for the local build and the squash-merge commit have the
 same Git tree (`57d47d1b2acce7773f4da8984ce02c69ab42a6af`).
 
-- Combined focused run: **45 passed, 2 expected skips**. This includes all
-  **33/33** MQT integration regressions, construction and manipulation, and one
+- Combined focused run: **47 passed, 2 expected skips**. This includes all
+  **35/35** MQT integration regressions, construction and manipulation, and one
   representative abstract and device transpilation case.
 - Target-aware native and measured-fallback exports both report the exact target
   width, one canonical `q` register, and no Qiskit layout metadata.

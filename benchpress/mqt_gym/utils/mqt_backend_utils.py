@@ -14,14 +14,15 @@
 from qiskit_ibm_runtime import QiskitRuntimeService
 
 from benchpress.config import POSSIBLE_2Q_GATES
-from benchpress.qiskit_gym.utils.qiskit_backend_utils import STR_TO_IBM_FAKE_BACKEND
+from benchpress.qiskit_gym.utils.qiskit_backend_utils import get_ibm_fake_backend
 
 
 def get_mqt_bench_backend(backend_name):
     """Return an annotated Qiskit BackendV2 for MQT target construction."""
-    if "fake" in backend_name:
-        backend = STR_TO_IBM_FAKE_BACKEND[backend_name]()
-    elif "ibm" in backend_name:
+    lowered_name = backend_name.lower()
+    if "fake" in lowered_name:
+        backend = get_ibm_fake_backend(backend_name)
+    elif "ibm" in lowered_name:
         service = QiskitRuntimeService()
         backend = service.backend(backend_name)
     else:
