@@ -1,0 +1,14 @@
+# MQT Core MLIR Python bindings are not in the lean PyPI wheel yet.
+# Install an MLIR-enabled build (LLVM/MLIR 22.1+; see README / setup-mlir):
+#
+#   export MLIR_DIR=.../lib/cmake/mlir
+#
+# Merged MQT Core integration baseline containing #2118 and #2133. A local
+# checkout must provide the same target-compilation and Qiskit-export APIs.
+git+https://github.com/munich-quantum-toolkit/core.git@b401a064c7d2e5668cedf8aaeb185ed971b9de19
+qiskit>=2.5.0,<2.6.0
+qiskit-qasm3-import
+qiskit-ibm-runtime
+numpy
+scipy
+git+https://github.com/1ucian0/pytest-benchmark.git@timeout-skiplist/forkserver/decorator

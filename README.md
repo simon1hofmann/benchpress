@@ -23,6 +23,7 @@ Benchpress currently supports the following SDKs:
 - **BQSKit** (https://github.com/BQSKit/bqskit)
 - **Braket** (https://github.com/amazon-braket/amazon-braket-sdk-python)
 - **Cirq** (https://github.com/quantumlib/Cirq)
+- **MQT Core** (https://github.com/munich-quantum-toolkit/core)
 - **Qiskit** (https://github.com/Qiskit/qiskit)
 - **Qiskit IBM transpiler** (https://github.com/Qiskit/qiskit-ibm-transpiler)
 - **pyqpanda3** (https://pypi.org/project/pyqpanda3/)
@@ -35,7 +36,22 @@ Running Benchpress is resource intensive.  Although the exact requirements depen
 
 ## Installation
 
-Benchpress itself requires no installation.  However running it requires the tools in `requirements.txt`.  In addition, running each of the frameworks has its own dependencies in the corresponding `*-requirements.txt` file
+Benchpress itself requires no installation.  However running it requires the tools in `requirements.txt`.  In addition, running each of the frameworks has its own dependencies in the corresponding `requirements-*.txt` file.
+
+### MQT Core (MLIR-enabled)
+
+The MQT gym uses `mqt.core.mlir`. As of 2026-08-17, the latest stable PyPI
+release (3.8.0) still does not include those bindings, so install the exact
+MLIR-enabled MQT Core revision pinned in `requirements-mqt.txt`. The pin is the
+merged integration baseline `b401a064c7d2e5668cedf8aaeb185ed971b9de19`:
+the merge commit of [MQT Core PR #2133](https://github.com/munich-quantum-toolkit/core/pull/2133),
+including [PR #2118](https://github.com/munich-quantum-toolkit/core/pull/2118).
+
+1. Install a portable LLVM/MLIR 22.1+ toolchain (e.g. via [setup-mlir](https://github.com/munich-quantum-software/setup-mlir)).
+2. Export `MLIR_DIR` to that install’s CMake package directory. MQT Core infers `LLVM_DIR` from it.
+3. `python -m pip install -r requirements.txt -r requirements-mqt.txt`
+
+Then run `python -m pytest benchpress/mqt_gym`.
 
 ### [pre-running] Create a skiplist
 
