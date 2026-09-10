@@ -11,18 +11,13 @@
 # that they have been altered from the originals.
 """Test circuit manipulation"""
 
-import pytest
-from mqt.core.mlir import CompilerTarget
-
 from benchpress.config import Configuration
 from benchpress.mqt_gym.circuits import multi_control_circuit
 from benchpress.mqt_gym.utils.io import (
     make_compiler_target,
-    mqt_compile,
     mqt_to_qiskit_circuit,
     prepare_mqt_compile,
     program_num_qubits,
-    program_twoq_count,
 )
 from benchpress.utilities.io import qasm_circuit_loader
 from benchpress.workouts.manipulate import WorkoutCircuitManipulate
@@ -32,23 +27,26 @@ from benchpress.workouts.validation import benchpress_test_validation
 def _basis_setup(program, gates):
     """Compile onto an all-to-all target with the requested native gates."""
     nq = program_num_qubits(program)
-    # Borrow operation menu construction, then drop topology for all-to-all.
-    linear = [(i, i + 1) for i in range(max(nq - 1, 0))]
-    menu = make_compiler_target(max(nq, 1), linear or [(0, 1)], basis_gates=gates)
-    target = CompilerTarget(max(nq, 1), operations=list(menu.operations))
+    target = make_compiler_target(max(nq, 1), None, basis_gates=gates)
     return prepare_mqt_compile(program, target)
-
-
-def _basis_change(program, target):
-    """Run target compilation through the shared safety/configuration path."""
-    return mqt_compile(program, target)
 
 
 @benchpress_test_validation
 class TestWorkoutCircuitManipulate(WorkoutCircuitManipulate):
     def test_DTC100_twirling(self, benchmark):
-        """Pauli-twirling is not exposed in mqt.core.mlir."""
-        pytest.skip("Not implemented: no Pauli-twirling API in mqt.core.mlir")
+        """Perform Pauli twirling on a 100-qubit DTC circuit."""
+        circuit = qasm_circuit_loader(
+            Configuration.get_qasm_dir("dtc") + "dtc_100_cx_12345.qasm", benchmark
+        )
+        source = circuit.to_qco()
+
+        @benchmark
+        def result():
+            twirled = source.copy()
+            twirled.run_pass_pipeline("pauli-twirl-2q-gates")
+            return twirled
+
+        assert result
 
     def test_multi_control_decompose(self, benchmark):
         """Decompose a multi-control gate into the basis [rx, ry, rz, cz]."""
@@ -57,9 +55,10 @@ class TestWorkoutCircuitManipulate(WorkoutCircuitManipulate):
 
         @benchmark
         def result():
-            return _basis_change(setup.program, setup.target)
+            return setup.compile()
 
-        gate_count_2q = program_twoq_count(result, "cz")
+        qc = mqt_to_qiskit_circuit(result, target=setup.target)
+        gate_count_2q = qc.count_ops().get("cz", 0)
         benchmark.extra_info["gate_count_2q"] = gate_count_2q
         assert gate_count_2q > 0
 
@@ -72,9 +71,10 @@ class TestWorkoutCircuitManipulate(WorkoutCircuitManipulate):
 
         @benchmark
         def result():
-            return _basis_change(setup.program, setup.target)
+            return setup.compile()
 
-        gate_count_2q = program_twoq_count(result, "cz")
+        qc = mqt_to_qiskit_circuit(result, target=setup.target)
+        gate_count_2q = qc.count_ops().get("cz", 0)
         benchmark.extra_info["gate_count_2q"] = gate_count_2q
         assert gate_count_2q > 0
 
@@ -88,7 +88,7 @@ class TestWorkoutCircuitManipulate(WorkoutCircuitManipulate):
 
         @benchmark
         def result():
-            return _basis_change(setup.program, setup.target)
+            return setup.compile()
 
         qc = mqt_to_qiskit_circuit(result, target=setup.target)
         benchmark.extra_info["gate_count_2q"] = qc.count_ops().get("cz", 0)

@@ -40,16 +40,28 @@ Benchpress itself requires no installation.  However running it requires the too
 
 ### MQT Core (MLIR-enabled)
 
-The MQT gym uses `mqt.core.mlir`. As of 2026-08-17, the latest stable PyPI
-release (3.8.0) still does not include those bindings, so install the exact
-MLIR-enabled MQT Core revision pinned in `requirements-mqt.txt`. The pin is the
-merged integration baseline `b401a064c7d2e5668cedf8aaeb185ed971b9de19`:
-the merge commit of [MQT Core PR #2133](https://github.com/munich-quantum-toolkit/core/pull/2133),
-including [PR #2118](https://github.com/munich-quantum-toolkit/core/pull/2118).
+The MQT gym uses the unreleased v4 `mqt.core.mlir` Compiler Collection.
+Install the exact MQT Core revision pinned in `requirements-mqt.txt`:
+`6a928c868871e1fd0706778edbc68aa00703cc49`, upstream `main` on
+2026-09-10. It includes payload-aware control-flow legalization and
+decomposition/fusion speedups alongside the routing and exporter fixes.
+The gym uses `QCProgram`, `CompilerTarget`, and `TargetEnvironment`.
+Compilation selects an OpenQASM 3 payload contract and explicitly enables
+forward branching for verified register-feed-forward profiles. Other optional
+capabilities remain unknown; native Qiskit export supplies validation and
+metrics outside timing.
+This does not assert that a modeled backend accepts arbitrary dynamic programs.
 
-1. Install a portable LLVM/MLIR 22.1+ toolchain (e.g. via [setup-mlir](https://github.com/munich-quantum-software/setup-mlir)).
-2. Export `MLIR_DIR` to that install’s CMake package directory. MQT Core infers `LLVM_DIR` from it.
-3. `python -m pip install -r requirements.txt -r requirements-mqt.txt`
+See the [integration gap report](docs/mqt-core-benchpress-gap-report.md) for
+cross-tool comparability, guarded benchmarks, and remaining v4 API gaps.
+
+1. Use Python 3.11+, CMake 4.4.1+, and a C++20-capable compiler. On macOS, use
+   Apple Silicon, macOS 13.3+, and AppleClang 17+.
+2. Install a portable LLVM/MLIR 23.1+ toolchain, for example via
+   [setup-mlir](https://github.com/munich-quantum-software/setup-mlir).
+3. Export `MLIR_DIR` to that install’s CMake package directory. MQT Core
+   infers `LLVM_DIR` from it.
+4. `python -m pip install -r requirements.txt -r requirements-mqt.txt`
 
 Then run `python -m pytest benchpress/mqt_gym`.
 

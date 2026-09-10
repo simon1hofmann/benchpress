@@ -1,11 +1,12 @@
-# MQT Gym: OpenQASM Export for Validation and Metrics
+# MQT Gym: Native Export for Validation and Metrics
 
 **Date:** 2026-08-05
-**Status:** Implemented; source-reviewed against merged MQT Core `main` at
-`b401a064c7d2e5668cedf8aaeb185ed971b9de19` (#2133, including #2118) on
-2026-08-17. Focused Benchpress runtime validation uses the identical merged
-source tree.
-**Goal:** Replace fragile QCO-IR regex validation and IR text scraping for output metrics with native MQT→Qiskit conversion plus an OpenQASM 3 fallback, so gate-set / topology checks and reported metrics match other gyms.
+**Status:** Implemented, source-reviewed, and focused-runtime-tested against MQT
+Core `main` at `6a928c868871e1fd0706778edbc68aa00703cc49` on 2026-09-10.
+**Goal:** Replace fragile QCO-IR regex validation and IR text scraping for
+output metrics with native MQT→Qiskit conversion, so gate-set/topology checks
+and reported metrics match other gyms. Core owns measurement scheduling and
+classical snapshot preservation; Benchpress does not rewrite exported stores.
 
 ## Background
 
@@ -26,12 +27,12 @@ That diverges from `qiskit_gym` (basis + coupling on a real `QuantumCircuit`; `c
 | Topic | Choice |
 | --- | --- |
 | Compile result type | Unchanged: `mqt_compile` returns `QCOProgram` |
-| Validation | Native conversion (OpenQASM 3 fallback) → basis + coupling checks (qiskit-gym style) |
+| Validation | Native conversion, then basis + coupling checks (qiskit-gym style) |
 | Output metrics | Same exported circuit → same fields as `qiskit_output_circuit_properties` |
 | Regex IR validation | Remove; no silent fallback |
 | Shared conversion | One helper used by validation and metrics; mapped output also receives its `CompilerTarget` |
-| Prerequisite | Benchpress must run against the pinned MQT Core baseline, which provides target-aware `to_qiskit` and `to_openqasm3` |
-| Qiskit importer gaps | Strip unsupported `output` declarations/assignments before `qasm3.loads`; preserve local measurement declarations |
+| Prerequisite | Benchpress must run against the pinned MQT Core baseline, which provides target-aware `to_qiskit` and handles delayed stores |
+| Native export failures | Fail with the original diagnostic; no OpenQASM recovery path |
 
 ## Architecture
 
@@ -41,9 +42,7 @@ QCOProgram / QCProgram  (timed compile still ends on QCOProgram)
         ▼
   mqt_to_qiskit_circuit(program, target=None)
         │  QCO: to_qc(copy=True)
-        │  first: QCProgram.to_qiskit(target=target)
-        │  classical-execution fallback: to_openqasm3().source
-        │       → qiskit.qasm3.loads(...) → dense physical target rebuild
+        │  QCProgram.to_qiskit(target=target)
         ▼
   QuantumCircuit
         ├── mqt_circuit_validation(circuit, backend, target=target)
@@ -67,21 +66,13 @@ may omit it.
 1. If `QCOProgram`: `qc = program.to_qc(copy=True)` (do not mutate the stored result).
 2. Else if `QCProgram`: use `program` as-is.
 3. Else: raise `TypeError` with a clear message.
-4. Prefer `qc.to_qiskit(target=target)`. For a mapped program, `target` is the
+4. Use `qc.to_qiskit(target=target)`. For a mapped program, `target` is the
    `CompilerTarget` used for compilation; Core then creates Qiskit's canonical
    full-width physical circuit.
-5. If native conversion fails, an unmapped export may try `to_openqasm3()`,
-   remove only unsupported output declarations/assignments, and load with
-   `qiskit.qasm3.loads`. For mapped output, allow this fallback only when the
-   native error is the still-unsupported classical execution used by
-   measurements.
-6. For mapped output, accept that fallback only for a dense Benchpress target
-   and a program without dynamic qubit allocations. Identity-compose the
-   physical qubit indices into a new `QuantumCircuit(target.num_qubits, ...)` so
-   metrics and validation retain the exact target width and canonical `q`
-   register. Reject sparse targets and every other native target-export error.
-7. On conversion/export/load failure: raise with both conversion errors. Do not
-   fall back to IR regex.
+5. Let the native exporter reject target-aware conversion when dynamic qubit
+   allocations remain; do not duplicate that check over textual MLIR.
+6. On native export failure, retain the exception as the cause and include its
+   diagnostic. Do not rewrite OpenQASM or fall back to IR regex.
 
 Double export in one test (validate then metrics) is acceptable; compile cost dominates. Caching is out of scope.
 
@@ -122,8 +113,8 @@ Validation always takes a BackendV2-compatible object (`operation_names`, `coupl
 
 | Case | Behavior |
 | --- | --- |
-| Missing `to_openqasm3` / stale wheel | Fail with an explicit “upgrade/rebuild mqt-core” message |
-| Export or OpenQASM load error | Fail the workout (no skip, no regex fallback) |
+| Stale or incompatible wheel | Fail; do not silently skip the gym |
+| Native export error | Fail the workout and retain the underlying diagnostic |
 | Gate outside basis / bad 2Q edge | Raise like qiskit gym (`Exception` with message) |
 
 ## Out of scope
@@ -142,7 +133,6 @@ Validation always takes a BackendV2-compatible object (`operation_names`, `coupl
 
 ## Dependencies
 
-- Local/CI MQT Core must use the exact merged revision pinned in
+- Local/CI MQT Core must use the exact snapshot pinned in
   `requirements-mqt.txt`. It includes OpenQASM 3 export and target-aware
   `QCProgram.to_qiskit(target=target)`.
-- Qiskit OpenQASM 3 load support (already a Benchpress dependency via qiskit gym plumbing).

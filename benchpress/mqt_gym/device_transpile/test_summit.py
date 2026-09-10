@@ -12,14 +12,16 @@
 """Test summit benchmarks"""
 
 import pytest
+from qiskit.circuit.library import QuantumVolume
 
 from benchpress.config import Configuration
 from benchpress.mqt_gym.circuits import (
     mqt_bv_all_ones,
+    mqt_circSU2,
+    to_qc_program,
     trivial_bvlike_circuit,
 )
 from benchpress.mqt_gym.utils.io import (
-    mqt_compile,
     prepare_mqt_compile,
     program_num_qubits,
 )
@@ -45,6 +47,21 @@ def _prepare(prog):
     return prepare_mqt_compile(prog, BACKEND)
 
 
+def _transpile_circsu2(width, benchmark):
+    # ponytail: bind outside timing until Core can export synthesized atan2.
+    prog = mqt_circSU2(width, 3, seed=12345)
+    input_circuit_properties(prog, benchmark)
+    _skip_if_too_large(prog)
+    setup = _prepare(prog)
+
+    @benchmark
+    def result():
+        return setup.compile()
+
+    output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
+    assert circuit_validator(result, BACKEND, target=setup.target)
+
+
 @benchpress_test_validation
 class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
     def test_QFT_100_transpile(self, benchmark):
@@ -56,19 +73,29 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         @benchmark
         def result():
-            return mqt_compile(setup.program, setup.target)
+            return setup.compile()
 
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)
 
     def test_QV_100_transpile(self, benchmark):
-        pytest.skip("MQT Core cannot import arbitrary-unitary QV circuits")
+        prog = to_qc_program(QuantumVolume(100, 100, seed=12345))
+        input_circuit_properties(prog, benchmark)
+        _skip_if_too_large(prog)
+        setup = _prepare(prog)
+
+        @benchmark
+        def result():
+            return setup.compile()
+
+        output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
+        assert circuit_validator(result, BACKEND, target=setup.target)
 
     def test_circSU2_89_transpile(self, benchmark):
-        pytest.skip("MQT Compiler Collection cannot import free parameters")
+        _transpile_circsu2(89, benchmark)
 
     def test_circSU2_100_transpile(self, benchmark):
-        pytest.skip("MQT Compiler Collection cannot import free parameters")
+        _transpile_circsu2(100, benchmark)
 
     def test_BV_100_transpile(self, benchmark):
         prog = mqt_bv_all_ones(100)
@@ -78,7 +105,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         @benchmark
         def result():
-            return mqt_compile(setup.program, setup.target)
+            return setup.compile()
 
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)
@@ -94,7 +121,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         @benchmark
         def result():
-            return mqt_compile(setup.program, setup.target)
+            return setup.compile()
 
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)
@@ -109,7 +136,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         @benchmark
         def result():
-            return mqt_compile(setup.program, setup.target)
+            return setup.compile()
 
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)
@@ -122,7 +149,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         @benchmark
         def result():
-            return mqt_compile(setup.program, setup.target)
+            return setup.compile()
 
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)
@@ -137,7 +164,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         @benchmark
         def result():
-            return mqt_compile(setup.program, setup.target)
+            return setup.compile()
 
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)

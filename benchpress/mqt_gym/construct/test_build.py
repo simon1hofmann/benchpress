@@ -12,13 +12,13 @@
 """Test circuit generation"""
 
 import numpy as np
-import pytest
-from mqt.core.ir import QuantumComputation
+from qiskit import QuantumCircuit
+from qiskit.circuit.library import efficient_su2
 
 from benchpress.config import Configuration
 from benchpress.mqt_gym.circuits import (
     dtc_unitary,
-    mqt_circSU2_ir,
+    mqt_QV,
     mqt_random_clifford,
     multi_control_circuit,
     to_qc_program,
@@ -37,8 +37,13 @@ SEED = 12345
 @benchpress_test_validation
 class TestWorkoutCircuitConstruction(WorkoutCircuitConstruction):
     def test_QV100_build(self, benchmark):
-        """MQT Core cannot represent the arbitrary two-qubit QV unitaries."""
-        pytest.skip("MQT Core has no arbitrary-unitary circuit construction API")
+        """Build a 100Q Quantum Volume circuit with dense unitary operations."""
+
+        @benchmark
+        def result():
+            return mqt_QV(100, 100, seed=SEED)
+
+        assert program_op_counts(result).get("unitary", 0) == 5000
 
     def test_DTC100_set_build(self, benchmark):
         """Build a set of 100Q DTC circuits out to 100 layers."""
@@ -47,11 +52,11 @@ class TestWorkoutCircuitConstruction(WorkoutCircuitConstruction):
 
         @benchmark
         def result():
-            circ = QuantumComputation(num_qubits)
-            dtc_op = dtc_unitary(num_qubits, seed=SEED).to_operation()
-            for _ in range(max_cycles):
-                circ.append(dtc_op)
-            return to_qc_program(circ)
+            circuits = [QuantumCircuit(num_qubits)]
+            dtc_circ = dtc_unitary(num_qubits, seed=SEED)
+            for cycle in range(max_cycles):
+                circuits.append(circuits[cycle].compose(dtc_circ))
+            return to_qc_program(circuits[-1])
 
         output_circuit_properties(result, "rzz", benchmark)
         assert benchmark.extra_info["output_gate_count_2q"] == 9900
@@ -81,23 +86,22 @@ class TestWorkoutCircuitConstruction(WorkoutCircuitConstruction):
 
         @benchmark
         def result():
-            return mqt_circSU2_ir(N, 4)
+            return to_qc_program(efficient_su2(N, reps=4, entanglement="circular"))
 
-        assert len(result.variables) == 1000
+        assert result.to_qiskit().num_parameters == 1000
 
     def test_param_circSU2_100_bind(self, benchmark):
         """Bind 1000 parameters on efficient SU2 over 100Q."""
         N = 100
-        qc = mqt_circSU2_ir(N, 4)
-        assert len(qc.variables) == 1000
+        qc = efficient_su2(N, reps=4, entanglement="circular")
+        assert qc.num_parameters == 1000
+        values = np.linspace(0, 2 * np.pi, qc.num_parameters)
 
         @benchmark
         def result():
-            values = np.linspace(0, 2 * np.pi, len(qc.variables))
-            params = dict(zip(qc.variables, values, strict=True))
-            return qc.instantiate(params)
+            return to_qc_program(qc.assign_parameters(values))
 
-        assert len(result.variables) == 0
+        assert result.to_qiskit().num_parameters == 0
 
     def test_QV100_qasm2_import(self, benchmark):
         """QASM import of QV100 circuit into MLIR."""
@@ -121,6 +125,5 @@ class TestWorkoutCircuitConstruction(WorkoutCircuitConstruction):
             path = Configuration.get_qasm_dir("bigint") + "bigint.qasm"
             return load_qasm_as_qc_program(path)
 
-        # MQT can import this classical-integer program, but its result-bearing
-        # classical control flow cannot yet be exported for standard metrics.
+        output_circuit_properties(result, "cx", benchmark)
         assert result

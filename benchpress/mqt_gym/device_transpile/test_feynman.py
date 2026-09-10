@@ -17,10 +17,9 @@ import pytest
 
 from benchpress.config import Configuration
 from benchpress.mqt_gym.utils.io import (
-    mqt_compile,
+    UnsupportedTargetControlFlowError,
     prepare_mqt_compile,
     program_num_qubits,
-    qasm_uses_classical_control,
 )
 from benchpress.utilities.io import output_circuit_properties, qasm_circuit_loader
 from benchpress.utilities.validation import circuit_validator
@@ -29,6 +28,22 @@ from benchpress.workouts.validation import benchpress_test_validation
 
 BACKEND = Configuration.backend()
 TWO_Q_GATE = BACKEND.two_q_gate_type
+
+_VERIFIED_REGISTER_FEED_FORWARD = {
+    (filename, "fake_torino")
+    for filename in (
+        "inverseqft1.qasm",
+        "inverseqft2.qasm",
+        "qec.qasm",
+        "teleport.qasm",
+        "teleportv2.qasm",
+    )
+}
+
+
+def _verified_register_feed_forward(filename, backend):
+    """Keep device control opt-ins specific to the validated workload/backend."""
+    return (filename, backend.name) in _VERIFIED_REGISTER_FEED_FORWARD
 
 
 def pytest_generate_tests(metafunc):
@@ -42,16 +57,23 @@ class TestWorkoutDeviceFeynman(WorkoutDeviceFeynman):
     def test_feynman_transpile(self, benchmark, filename):
         """Transpile a feynman benchmark qasm file against a target device"""
         qasm_file = f"{Configuration.get_qasm_dir('feynman')}{filename}"
-        if qasm_uses_classical_control(qasm_file):
-            pytest.skip("MQT target compilation cannot map QASM2 classical control")
         prog = qasm_circuit_loader(qasm_file, benchmark)
         if program_num_qubits(prog) > BACKEND.num_qubits:
             pytest.skip("Circuit too large for given backend.")
-        setup = prepare_mqt_compile(prog, BACKEND)
+        try:
+            setup = prepare_mqt_compile(
+                prog,
+                BACKEND,
+                verified_register_feed_forward=_verified_register_feed_forward(
+                    filename, BACKEND
+                ),
+            )
+        except UnsupportedTargetControlFlowError as exc:
+            pytest.skip(str(exc))
 
         @benchmark
         def result():
-            return mqt_compile(setup.program, setup.target)
+            return setup.compile()
 
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)

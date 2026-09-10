@@ -9,12 +9,10 @@
 # Any modifications or derivative works of this code must retain this
 # copyright notice, and modified files need to carry a notice indicating
 # that they have been altered from the originals.
+import os
 from importlib.metadata import PackageNotFoundError, version
 
-import pytest
-
 from benchpress.config import Configuration
-from benchpress.mqt_gym.utils.mqt_backend_utils import unsupported_backend_reason
 
 _REPORTED_PACKAGES = {
     "mqt.core": "mqt-core",
@@ -56,18 +54,13 @@ def pytest_report_header(config):
 def pytest_benchmark_update_json(config, benchmarks, output_json):
     """Adds custom sections to the pytest-benchmark report"""
     output_json["mqt_info"] = _reported_versions()
-
-
-def pytest_collection_modifyitems(config, items):
-    """Skip device workouts whose directed topology MQT cannot represent."""
-    device_items = [
-        item for item in items if "mqt_gym/device_transpile" in str(item.path)
-    ]
-    if not device_items:
-        return
-    reason = unsupported_backend_reason(Configuration.backend())
-    if reason is None:
-        return
-    marker = pytest.mark.skip(reason=reason)
-    for item in device_items:
-        item.add_marker(marker)
+    options = Configuration.options.get("mqt", {})
+    output_json["mqt_context"] = {
+        "construction_and_binding": "qiskit_frontend_adapter",
+        "device_circsu2_parameters": "numeric_seed_12345",
+        "normalize_global_phases": options.get("normalize_global_phases", False),
+        "native_gates_override": options.get("native_gates"),
+        "compile_timeout_seconds": float(
+            os.environ.get("MQT_COMPILE_TIMEOUT", "0") or "0"
+        ),
+    }

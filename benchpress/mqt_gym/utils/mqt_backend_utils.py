@@ -37,20 +37,32 @@ def get_mqt_bench_backend(backend_name):
     return backend
 
 
-def coupling_edges(backend):
-    """Return undirected coupling edges, or ``None`` for all-to-all targets."""
-    edges = None
+def _raw_coupling_edges(backend):
+    """Return the backend's directed coupling entries, if any."""
     cmap = getattr(backend, "coupling_map", None)
     if cmap is not None:
         if hasattr(cmap, "get_edges"):
             edges = list(cmap.get_edges())
         else:
-            edges = [tuple(e) for e in cmap]
-    if not edges and hasattr(backend, "configuration"):
+            edges = [tuple(edge) for edge in cmap]
+        if edges:
+            return edges
+    if hasattr(backend, "configuration"):
         conf = backend.configuration()
         if conf is not None and getattr(conf, "coupling_map", None):
-            edges = [tuple(edge) for edge in conf.coupling_map]
+            return [tuple(edge) for edge in conf.coupling_map]
+    return []
+
+
+def coupling_edges(backend):
+    """Return undirected coupling edges, or ``None`` for all-to-all targets."""
+    edges = _raw_coupling_edges(backend)
     if not edges:
+        if (
+            getattr(backend, "coupling_map", None) is not None
+            and int(getattr(backend, "num_qubits", 0)) > 1
+        ):
+            raise ValueError("Backend exposes an empty coupling map")
         return None
     undirected = set()
     for u, v in edges:
@@ -59,24 +71,20 @@ def coupling_edges(backend):
     return sorted(undirected)
 
 
-def unsupported_backend_reason(backend):
-    """Explain target features the current MQT compiler cannot represent."""
-    two_qubit_gate = getattr(backend, "two_q_gate_type", None)
-    if two_qubit_gate not in {"cx", "ecr"}:
-        return None
+def operation_site_tuples(backend, operation, arity):
+    """Return ordered operation sites, or ``None`` for global availability."""
+    target = getattr(backend, "target", None)
+    if target is not None and hasattr(target, "qargs_for_operation_name"):
+        try:
+            qargs = target.qargs_for_operation_name(operation)
+        except KeyError:
+            pass
+        else:
+            if qargs is None:
+                return None
+            return sorted({tuple(int(site) for site in sites) for sites in qargs})
 
-    coupling_map = getattr(backend, "coupling_map", None)
-    if coupling_map is None:
+    if arity != 2:
         return None
-    edges = (
-        list(coupling_map.get_edges())
-        if hasattr(coupling_map, "get_edges")
-        else [tuple(edge) for edge in coupling_map]
-    )
-    directed_edges = {(int(source), int(target)) for source, target in edges}
-    if any((target, source) not in directed_edges for source, target in directed_edges):
-        return (
-            f"MQT CompilerTarget models undirected couplings and cannot preserve "
-            f"the directional {two_qubit_gate} constraints of this backend"
-        )
-    return None
+    edges = _raw_coupling_edges(backend)
+    return sorted({tuple(int(site) for site in edge) for edge in edges}) or None
