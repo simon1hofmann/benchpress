@@ -42,18 +42,8 @@ Benchpress itself requires no installation.  However running it requires the too
 
 The MQT gym uses the unreleased v4 `mqt.core.mlir` Compiler Collection.
 Install the exact MQT Core revision pinned in `requirements-mqt.txt`:
-`6a928c868871e1fd0706778edbc68aa00703cc49`, upstream `main` on
-2026-09-10. It includes payload-aware control-flow legalization and
-decomposition/fusion speedups alongside the routing and exporter fixes.
-The gym uses `QCProgram`, `CompilerTarget`, and `TargetEnvironment`.
-Compilation selects an OpenQASM 3 payload contract and explicitly enables
-forward branching for verified register-feed-forward profiles. Other optional
-capabilities remain unknown; native Qiskit export supplies validation and
-metrics outside timing.
-This does not assert that a modeled backend accepts arbitrary dynamic programs.
-
-See the [integration gap report](docs/mqt-core-benchpress-gap-report.md) for
-cross-tool comparability, guarded benchmarks, and remaining v4 API gaps.
+`b59c8b3338ba19a705a1094540b3861d30b525db`, upstream `main` on
+2026-09-11. The stable PyPI wheel does not include the required bindings.
 
 1. Use Python 3.11+, CMake 4.4.1+, and a C++20-capable compiler. On macOS, use
    Apple Silicon, macOS 13.3+, and AppleClang 17+.
@@ -64,6 +54,14 @@ cross-tool comparability, guarded benchmarks, and remaining v4 API gaps.
 4. `python -m pip install -r requirements.txt -r requirements-mqt.txt`
 
 Then run `python -m pytest benchpress/mqt_gym`.
+
+OpenQASM benchmarks use Core's native importer and target compiler. Mapping uses
+Core's defaults, including a trial budget based on the available logical CPUs.
+Circuit construction and parameter binding use the Qiskit frontend. Native
+Qiskit export supplies output metrics and validation outside compilation timing.
+Only verified register-feed-forward profiles enable forward branching; other
+unsupported control flow is skipped. This does not establish dynamic execution
+support on a modeled hardware backend.
 
 ### [pre-running] Create a skiplist
 

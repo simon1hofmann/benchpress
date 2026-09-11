@@ -97,7 +97,7 @@ _CBIT_STORE_DESTINATION_RE = re.compile(
     r"\[(?P<index>%[-\w.$]+)\]",
     flags=re.MULTILINE,
 )
-# (num_qubits, num_parameters) for CompilerTarget.Operation construction.
+# (num_qubits, num_parameters) for CompilerTarget.OperationCapability construction.
 _TARGET_GATE_SPECS = {
     "gphase": (0, 1),
     "u": (1, 3),
@@ -144,8 +144,8 @@ def load_qasm_as_qc_program(qasm_file=None, *, qasm_str=None) -> QCProgram:
     if (qasm_file is None) == (qasm_str is None):
         raise ValueError("Provide exactly one of qasm_file or qasm_str")
     if qasm_file is not None:
-        return QCProgram.from_qasm_file(qasm_file)
-    return QCProgram.from_qasm_str(qasm_str)
+        return QCProgram.from_openqasm_file(qasm_file)
+    return QCProgram.from_openqasm_str(qasm_str)
 
 
 def program_uses_classical_control(program) -> bool:
@@ -296,19 +296,13 @@ def mqt_to_qiskit_circuit(program, *, target=None) -> QuantumCircuit:
         TypeError: if ``program`` is not a QC/QCO program.
         RuntimeError: if native conversion fails.
     """
-    if isinstance(program, QCOProgram):
-        qc_prog = program.to_qc(copy=True)
-    elif isinstance(program, QCProgram):
-        qc_prog = program
-    else:
+    if not isinstance(program, (QCProgram, QCOProgram)):
         raise TypeError(
             f"mqt_to_qiskit_circuit expects QCProgram or QCOProgram, got {type(program)!r}"
         )
 
     try:
-        if target is None:
-            return qc_prog.to_qiskit()
-        return qc_prog.to_qiskit(target=target)
+        return program.to_qiskit(target=target)
     except Exception as exc:
         conversion = "target-aware Qiskit" if target is not None else "Qiskit"
         raise RuntimeError(f"MQT {conversion} conversion failed: {exc!r}") from exc
@@ -475,7 +469,7 @@ def make_compiler_target(
         if sites is not None and not sites:
             continue
         operations.append(
-            CompilerTarget.Operation(
+            CompilerTarget.OperationCapability(
                 gate,
                 arity,
                 spec[1],
@@ -637,7 +631,7 @@ def _mqt_compile_body(
         PayloadSpecification(
             PayloadFormat("openqasm", "3.0"),
             capabilities=(
-                [ProgramCapability("forward-branching")]
+                [ProgramCapability(ProgramCapability.FORWARD_BRANCHING)]
                 if verified_register_feed_forward
                 else []
             ),
@@ -723,7 +717,7 @@ def _target_from_spec(target_spec):
                 for site_tuple in operation["site_tuples"]
             ]
             operations.append(
-                CompilerTarget.Operation(
+                CompilerTarget.OperationCapability(
                     operation["name"],
                     arity,
                     operation["num_parameters"],

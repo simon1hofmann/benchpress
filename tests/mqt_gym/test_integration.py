@@ -137,12 +137,18 @@ def test_mqt_target_compilation_lowers_reusable_gates(frontend):
     assert Operator(converted).equiv(Operator(source))
 
 
-def test_mqt_to_qiskit_circuit_uses_native_compatible_program():
+@pytest.mark.parametrize("via_qco", [False, True])
+def test_mqt_to_qiskit_circuit_uses_native_compatible_program(via_qco):
     circuit = QuantumCircuit(2)
     circuit.h(0)
     circuit.cx(0, 1)
-    converted = mqt_to_qiskit_circuit(QCProgram.from_qiskit(circuit))
+    program = QCProgram.from_qiskit(circuit)
+    if via_qco:
+        program = program.to_qco()
+    original_ir = program.ir
+    converted = mqt_to_qiskit_circuit(program)
     assert converted.count_ops() == circuit.count_ops()
+    assert program.is_valid and program.ir == original_ir
 
 
 def test_mqt_quantum_volume_preserves_dense_unitaries():
@@ -214,8 +220,13 @@ def test_mqt_to_qiskit_circuit_rejects_unknown_type():
 
 
 @pytest.mark.parametrize("target_aware", [False, True])
-def test_mqt_to_qiskit_circuit_propagates_native_failures(monkeypatch, target_aware):
+@pytest.mark.parametrize("via_qco", [False, True])
+def test_mqt_to_qiskit_circuit_propagates_native_failures(
+    monkeypatch, target_aware, via_qco
+):
     program = QCProgram.from_qiskit(QuantumCircuit(0))
+    if via_qco:
+        program = program.to_qco()
     target = make_compiler_target(2, None) if target_aware else None
     native_error = RuntimeError("measurement destination must follow the measurement")
 
@@ -225,7 +236,7 @@ def test_mqt_to_qiskit_circuit_propagates_native_failures(monkeypatch, target_aw
     def fail_if_rewritten(*args, **kwargs):
         pytest.fail("native export failures must not trigger OpenQASM rewriting")
 
-    monkeypatch.setattr(QCProgram, "to_qiskit", fail_native)
+    monkeypatch.setattr(type(program), "to_qiskit", fail_native)
     monkeypatch.setattr(QCProgram, "to_openqasm3", fail_if_rewritten)
     conversion = "target-aware Qiskit" if target_aware else "Qiskit"
     with pytest.raises(
@@ -998,7 +1009,7 @@ def test_mqt_compile_preserves_direction_hidden_by_symmetric_map():
 
 
 def test_timeout_target_spec_preserves_calibration():
-    calibrated = CompilerTarget.Operation(
+    calibrated = CompilerTarget.OperationCapability(
         "cx",
         2,
         0,
@@ -1006,7 +1017,7 @@ def test_timeout_target_spec_preserves_calibration():
         duration=11,
         fidelity=0.95,
     )
-    unrestricted = CompilerTarget.Operation("cz", 2, 0)
+    unrestricted = CompilerTarget.OperationCapability("cz", 2, 0)
     target = CompilerTarget(
         2,
         connectivity=CompilerTarget.Connectivity([(0, 1)]),

@@ -4,8 +4,8 @@
 #
 #   export MLIR_DIR=.../lib/cmake/mlir
 #
-# Immutable upstream main snapshot, verified on 2026-09-10.
-git+https://github.com/munich-quantum-toolkit/core.git@6a928c868871e1fd0706778edbc68aa00703cc49
+# Immutable upstream main snapshot, verified on 2026-09-11.
+git+https://github.com/munich-quantum-toolkit/core.git@b59c8b3338ba19a705a1094540b3861d30b525db
 qiskit[qasm3-import]>=2.5.0,<2.6.0
 qiskit-ibm-runtime
 numpy
