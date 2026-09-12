@@ -1,11 +1,4 @@
-# MQT Core 3.10.0 PyPI wheels do not include the Compiler Collection bindings.
-# Install the pinned source revision (Python 3.11+, CMake 4.4.1+, and LLVM/MLIR
-# 23.1+; see README / setup-mlir):
-#
-#   export MLIR_DIR=.../lib/cmake/mlir
-#
-# Immutable upstream main snapshot, verified on 2026-09-11.
-git+https://github.com/munich-quantum-toolkit/core.git@b59c8b3338ba19a705a1094540b3861d30b525db
+mqt.core==4.0.0
 qiskit[qasm3-import]>=2.5.0,<2.6.0
 qiskit-ibm-runtime
 numpy

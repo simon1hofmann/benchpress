@@ -11,10 +11,20 @@
 # that they have been altered from the originals.
 """Circuit construction helpers for the MQT gym (return MLIR QCPrograms)."""
 
-import numpy as np
 from mqt.core.mlir import QCProgram
 from qiskit import QuantumCircuit
-from qiskit.circuit.library import efficient_su2, quantum_volume
+from qiskit.circuit.library import quantum_volume
+
+from benchpress.qiskit_gym.circuits import (
+    bv_all_ones,
+    random_clifford_circuit,
+)
+from benchpress.qiskit_gym.circuits import (
+    multi_control_circuit as qiskit_multi_control_circuit,
+)
+from benchpress.qiskit_gym.circuits import (
+    trivial_bvlike_circuit as qiskit_trivial_bvlike_circuit,
+)
 
 
 def to_qc_program(circuit: QuantumCircuit) -> QCProgram:
@@ -29,81 +39,21 @@ def mqt_QV(num_qubits, depth=None, seed=12345) -> QCProgram:
     return QCProgram.from_qiskit(quantum_volume(num_qubits, depth, seed=seed))
 
 
-def mqt_circSU2(width, num_reps=3, seed=12345) -> QCProgram:
-    """Efficient SU2 with numeric angles, returned as MLIR."""
-    rng = np.random.default_rng(seed)
-    circuit = efficient_su2(width, reps=num_reps, entanglement="circular")
-    values = rng.uniform(-np.pi, np.pi, size=circuit.num_parameters)
-    return to_qc_program(circuit.assign_parameters(values))
-
-
-def dtc_unitary(num_qubits, g=0.95, seed=12345) -> QuantumCircuit:
-    """Floquet unitary layer for DTC evolution."""
-    rng = np.random.default_rng(seed=seed)
-    qc = QuantumCircuit(num_qubits)
-    for i in range(num_qubits):
-        qc.rx(g * np.pi, i)
-    for i in range(0, num_qubits - 1, 2):
-        phi = rng.uniform(low=np.pi / 16, high=3 * np.pi / 16)
-        qc.rzz(2 * phi, i, i + 1)
-    for i in range(1, num_qubits - 1, 2):
-        phi = rng.uniform(low=np.pi / 16, high=3 * np.pi / 16)
-        qc.rzz(2 * phi, i, i + 1)
-    for i in range(num_qubits):
-        h = rng.uniform(low=-np.pi, high=np.pi)
-        qc.rz(h * np.pi, i)
-    return qc
-
-
 def multi_control_circuit(num_qubits) -> QCProgram:
-    """Build the Benchpress X/CX/.../MCX control ladder."""
-    qc = QuantumCircuit(num_qubits)
-    if num_qubits == 0:
-        return to_qc_program(qc)
-    qc.x(0)
-    for target in range(1, num_qubits):
-        qc.mcx(list(range(target)), target)
-    return to_qc_program(qc)
+    """Import the shared Benchpress multi-control ladder."""
+    return to_qc_program(qiskit_multi_control_circuit(num_qubits))
 
 
 def mqt_bv_all_ones(N) -> QCProgram:
-    """Bernstein–Vazirani for the all-ones bitstring."""
-    qc = QuantumCircuit(N, N - 1)
-    qc.x(N - 1)
-    for i in range(N):
-        qc.h(i)
-    for i in range(N - 1):
-        qc.cx(i, N - 1)
-    for i in range(N - 1):
-        qc.h(i)
-        qc.measure(i, i)
-    return to_qc_program(qc)
+    """Import the shared Bernstein–Vazirani circuit."""
+    return to_qc_program(bv_all_ones(N))
 
 
 def trivial_bvlike_circuit(N) -> QCProgram:
-    """BV-like circuit that should simplify under commutation."""
-    qc = QuantumCircuit(N)
-    for kk in range(N - 1):
-        qc.cx(kk, N - 1)
-    qc.x(N - 1)
-    qc.z(N - 2)
-    for kk in range(N - 2, -1, -1):
-        qc.cx(kk, N - 1)
-    return to_qc_program(qc)
+    """Import the shared BV-like simplification circuit."""
+    return to_qc_program(qiskit_trivial_bvlike_circuit(N))
 
 
-def mqt_random_clifford(num_qubits, num_gates=None, seed=12345) -> QCProgram:
-    """Random Clifford-generating gate sequence as MLIR."""
-    rng = np.random.default_rng(seed=seed)
-    out = QuantumCircuit(num_qubits)
-    num_gates = num_gates or 10 * num_qubits * num_qubits
-    gates = ["cx", "cz", "cy", "swap", "x", "y", "z", "s", "sdg", "h"]
-    for _ in range(num_gates):
-        gate = gates[rng.integers(len(gates))]
-        if gate in ("cx", "cz", "cy", "swap"):
-            q0, q1 = rng.choice(num_qubits, 2, replace=False)
-            getattr(out, gate)(int(q0), int(q1))
-        else:
-            q = int(rng.integers(num_qubits))
-            getattr(out, gate)(q)
-    return to_qc_program(out)
+def mqt_random_clifford(num_qubits, seed=12345) -> QCProgram:
+    """Import the shared random Clifford gate sequence."""
+    return to_qc_program(random_clifford_circuit(num_qubits, seed=seed))

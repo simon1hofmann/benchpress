@@ -11,7 +11,6 @@
 # that they have been altered from the originals.
 """Tests for MQT-to-Qiskit conversion used by validation and metrics."""
 
-import os
 from types import SimpleNamespace
 
 import pytest
@@ -24,8 +23,6 @@ from qiskit.transpiler import CouplingMap
 
 from benchpress.mqt_gym.circuits import mqt_bv_all_ones, mqt_QV, to_qc_program
 from benchpress.mqt_gym.utils.io import (
-    _target_from_spec,
-    _target_spec,
     load_qasm_as_qc_program,
     make_compiler_target,
     mqt_compile,
@@ -65,7 +62,6 @@ def test_mqt_report_records_adapter_and_runtime_options(monkeypatch):
         "mqt",
         {"normalize_global_phases": True, "native_gates": ["sx", "rz", "cz"]},
     )
-    monkeypatch.setenv("MQT_COMPILE_TIMEOUT", "1.5")
     report = {}
 
     pytest_benchmark_update_json(None, [], report)
@@ -73,10 +69,10 @@ def test_mqt_report_records_adapter_and_runtime_options(monkeypatch):
     assert "mqt.core" in report["mqt_info"]
     assert report["mqt_context"] == {
         "construction_and_binding": "qiskit_frontend_adapter",
-        "device_circsu2_parameters": "numeric_seed_12345",
+        "device_circsu2_parameters": "symbolic_unsupported",
         "normalize_global_phases": True,
         "native_gates_override": ["sx", "rz", "cz"],
-        "compile_timeout_seconds": 1.5,
+        "timeout_scope": "whole_test_preflight",
     }
 
 
@@ -326,7 +322,6 @@ def test_prepared_compile_reuses_validation_and_preserves_input(monkeypatch, via
     def fail_if_reprepared(*args, **kwargs):
         pytest.fail("prepared compilation must not rebuild or recheck the target")
 
-    monkeypatch.delenv("MQT_COMPILE_TIMEOUT", raising=False)
     monkeypatch.setattr(mqt_io, "_compiler_target", fail_if_reprepared)
     monkeypatch.setattr(
         mqt_io, "target_unsupported_control_flow_reason", check_lowered_program
@@ -374,7 +369,6 @@ def test_prepared_compile_rejects_control_flow_introduced_by_lowering(monkeypatc
     def fail_if_compiled(*args, **kwargs):
         pytest.fail("unsupported lowered control flow must not reach compilation")
 
-    monkeypatch.delenv("MQT_COMPILE_TIMEOUT", raising=False)
     monkeypatch.setattr(QCProgram, "to_qco", lambda *args, **kwargs: lowered)
     monkeypatch.setattr(QCOProgram, "compile_for_target", fail_if_compiled)
     with pytest.raises(NotImplementedError, match="classical control flow"):
@@ -387,7 +381,6 @@ def test_mqt_compile_accepts_empty_program(monkeypatch, via_qco):
     program = QCProgram.from_qiskit(QuantumCircuit(0))
     if via_qco:
         program = program.to_qco()
-    monkeypatch.delenv("MQT_COMPILE_TIMEOUT", raising=False)
 
     target = make_compiler_target(1, None, basis_gates=["sx", "x", "rz"])
     result = mqt_compile(program, target)
@@ -514,13 +507,9 @@ def test_target_preparation_rejects_qasm3_control_flow_safely():
         prepare_mqt_compile(prog, FlexibleBackend(2, layout="linear"))
 
 
-@pytest.mark.parametrize("compile_timeout", ["0", "60"])
-def test_target_compilation_accepts_scalar_phase_feed_forward(
-    monkeypatch, compile_timeout
-):
+def test_target_compilation_accepts_scalar_phase_feed_forward():
     from benchpress.utilities.backends import FlexibleBackend
 
-    monkeypatch.setenv("MQT_COMPILE_TIMEOUT", compile_timeout)
     prog = load_qasm_as_qc_program(
         qasm_str=(
             "OPENQASM 2.0;\n"
@@ -542,29 +531,24 @@ def test_target_compilation_accepts_scalar_phase_feed_forward(
     assert converted.count_ops().get("measure") == 1
 
 
-def test_target_preparation_rejects_reused_classical_destination():
-    from benchpress.utilities.backends import FlexibleBackend
-
-    prog = load_qasm_as_qc_program(
-        qasm_str=(
-            "OPENQASM 2.0;\n"
-            'include "qelib1.inc";\n'
-            "qreg q[2];\n"
-            "creg c[1];\n"
-            "h q[0];\n"
-            "measure q[0] -> c[0];\n"
-            "if(c == 1) u1(pi / 2) q[1];\n"
-            "measure q[0] -> c[0];\n"
-            "if(c == 1) u1(pi / 4) q[1];\n"
-        )
-    )
-
-    with pytest.raises(NotImplementedError, match="classical control flow"):
-        prepare_mqt_compile(
-            prog,
-            FlexibleBackend(2, layout="linear", control_flow=True),
-            verified_register_feed_forward=True,
-        )
+@pytest.mark.parametrize("control", [False, True])
+@pytest.mark.parametrize("topology", ["all-to-all", "linear", "square", "heavy-hex"])
+def test_target_compilation_preserves_reused_classical_destination(control, topology):
+    source = f"""OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[3];
+creg c[1];
+creg out[1];
+{"x q[0];" if control else ""}
+cx q[0],q[2];
+measure q[0] -> c[0];
+if(c == 1) x q[1];
+x q[0];
+measure q[0] -> c[0];
+if(c == 1) x q[1];
+measure q[1] -> out[0];
+"""
+    _assert_mapped_native_output(source, 3, topology, "10" if control else "11")
 
 
 def test_target_preparation_accepts_proven_affine_index():
@@ -895,16 +879,27 @@ def test_mqt_compiler_target_rejects_invalid_coupling_edges(num_qubits, edges, m
         make_compiler_target(num_qubits, edges, basis_gates=["u", "cx"])
 
 
-def test_mqt_manipulation_basis_setup_supports_one_qubit_program():
-    from benchpress.mqt_gym.manipulate.test_manipulate import _basis_setup
+def test_mqt_manipulation_basis_synthesis_supports_one_qubit_program():
+    from benchpress.mqt_gym.manipulate.test_manipulate import (
+        _basis_environment,
+        _synthesize,
+    )
 
     circuit = QuantumCircuit(1)
     circuit.x(0)
-    setup = _basis_setup(QCProgram.from_qiskit(circuit), ["rz", "sx", "x"])
+    program = QCProgram.from_qiskit(circuit)
+    original_ir = program.ir
+    environment = _basis_environment(program, ["rz", "sx", "x"])
 
-    assert setup.target.num_sites == 1
-    assert setup.target.connectivity_kind == CompilerTarget.ConnectivityKind.ALL_TO_ALL
-    assert "qco." in setup.compile().ir
+    assert environment.target.num_sites == 1
+    assert (
+        environment.target.connectivity_kind
+        == CompilerTarget.ConnectivityKind.ALL_TO_ALL
+    )
+    for _ in range(2):
+        assert "qco." in _synthesize(program, environment).ir
+        assert program.is_valid
+        assert program.ir == original_ir
 
 
 def test_mqt_compile_supports_backend_without_coupling_map():
@@ -1008,38 +1003,6 @@ def test_mqt_compile_preserves_direction_hidden_by_symmetric_map():
     setup.compile()
 
 
-def test_timeout_target_spec_preserves_calibration():
-    calibrated = CompilerTarget.OperationCapability(
-        "cx",
-        2,
-        0,
-        site_tuples=[CompilerTarget.SiteTuple([0, 1], 7, 0.99)],
-        duration=11,
-        fidelity=0.95,
-    )
-    unrestricted = CompilerTarget.OperationCapability("cz", 2, 0)
-    target = CompilerTarget(
-        2,
-        connectivity=CompilerTarget.Connectivity([(0, 1)]),
-        native_operations=CompilerTarget.NativeOperations([calibrated, unrestricted]),
-        duration_unit=CompilerTarget.DurationUnit("ns", 1e-9),
-    )
-
-    restored = _target_from_spec(_target_spec(target))
-    operations = {operation.name: operation for operation in restored.operations}
-    operation = operations["cx"]
-
-    assert restored.duration_unit.unit == "ns"
-    assert restored.duration_unit.scale_factor == pytest.approx(1e-9)
-    assert operation.duration == 11
-    assert operation.fidelity == pytest.approx(0.95)
-    assert operation.site_tuples[0].sites == [0, 1]
-    assert operation.site_tuples[0].duration == 7
-    assert operation.site_tuples[0].fidelity == pytest.approx(0.99)
-    assert restored.supports_operation("cx", 2, sites=[0, 1])
-    assert not restored.supports_operation("cx", 2, sites=[1, 0])
-
-
 @pytest.mark.parametrize(
     "source, width",
     [
@@ -1102,46 +1065,6 @@ def test_explicit_dead_gate_pass_removes_unobserved_work():
     removed = mqt_to_qiskit_circuit(result, target=setup.target)
     assert removed.num_qubits == setup.target.num_sites
     assert len(removed.data) == 0
-
-
-@pytest.mark.skipif(os.name == "nt", reason="hard-timeout path uses spawn on Windows")
-def test_mqt_compile_timeout_drains_large_success_before_join(monkeypatch):
-    from benchpress.utilities.backends import FlexibleBackend
-
-    width = 30
-    operations = [f"h q[{qubit}];" for qubit in range(width)]
-    operations.extend(
-        f"cx q[{control}],q[{target}];"
-        for control in range(width)
-        for target in range(control + 1, width)
-    )
-    prog = load_qasm_as_qc_program(
-        qasm_str=(
-            "OPENQASM 2.0;\n"
-            'include "qelib1.inc";\n'
-            f"qreg q[{width}];\n" + "\n".join(operations) + "\n"
-        )
-    )
-    monkeypatch.setenv("MQT_COMPILE_TIMEOUT", "5")
-    setup = prepare_mqt_compile(prog, FlexibleBackend(width, layout="all-to-all"))
-    result = setup.compile()
-    assert len(result.ir) > 65_536
-    exported = mqt_to_qiskit_circuit(result, target=setup.target)
-    assert exported.num_qubits == width
-    assert len(exported.data) > 0
-
-
-def test_mqt_compile_timeout_rejects_nonhomogeneous_target(monkeypatch):
-    prog = load_qasm_as_qc_program(qasm_str=_CX_MEASURED)
-    sparse_target = CompilerTarget(
-        [CompilerTarget.Site(10), CompilerTarget.Site(20)],
-        connectivity=CompilerTarget.Connectivity.all_to_all(),
-        native_operations=CompilerTarget.NativeOperations.unrestricted(),
-    )
-    monkeypatch.setenv("MQT_COMPILE_TIMEOUT", "5")
-
-    with pytest.raises(ValueError, match="homogeneous dense CompilerTarget"):
-        mqt_compile(prog, sparse_target)
 
 
 def test_mqt_circuit_validation_accepts_mapped_linear_circuit():
@@ -1221,19 +1144,5 @@ def test_mqt_output_circuit_properties_named_twoq_gate():
     mqt_output_circuit_properties(result, two_q, bench, target=setup.target)
     assert bench.extra_info["output_num_qubits"] == backend.num_qubits
     assert isinstance(bench.extra_info["output_circuit_operations"], dict)
-    assert bench.extra_info["output_gate_count_2q"] >= 1
-    assert bench.extra_info["output_depth_2q"] >= 1
-
-
-def test_mqt_output_circuit_properties_placeholder_2q_gate():
-    from benchpress.mqt_gym.utils.io import mqt_output_circuit_properties
-    from benchpress.utilities.backends import FlexibleBackend
-
-    prog = load_qasm_as_qc_program(qasm_str=_CX_MEASURED)
-    backend = FlexibleBackend(2, layout="linear")
-    setup = prepare_mqt_compile(prog, backend)
-    result = setup.compile()
-    bench = _Bench()
-    mqt_output_circuit_properties(result, "2Q_GATE", bench, target=setup.target)
     assert bench.extra_info["output_gate_count_2q"] >= 1
     assert bench.extra_info["output_depth_2q"] >= 1

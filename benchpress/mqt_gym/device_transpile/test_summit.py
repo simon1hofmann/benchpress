@@ -17,11 +17,11 @@ from qiskit.circuit.library import QuantumVolume
 from benchpress.config import Configuration
 from benchpress.mqt_gym.circuits import (
     mqt_bv_all_ones,
-    mqt_circSU2,
     to_qc_program,
     trivial_bvlike_circuit,
 )
 from benchpress.mqt_gym.utils.io import (
+    mqt_to_qiskit_circuit,
     prepare_mqt_compile,
     program_num_qubits,
 )
@@ -47,21 +47,6 @@ def _prepare(prog):
     return prepare_mqt_compile(prog, BACKEND)
 
 
-def _transpile_circsu2(width, benchmark):
-    # ponytail: bind outside timing until Core can export synthesized atan2.
-    prog = mqt_circSU2(width, 3, seed=12345)
-    input_circuit_properties(prog, benchmark)
-    _skip_if_too_large(prog)
-    setup = _prepare(prog)
-
-    @benchmark
-    def result():
-        return setup.compile()
-
-    output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
-    assert circuit_validator(result, BACKEND, target=setup.target)
-
-
 @benchpress_test_validation
 class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
     def test_QFT_100_transpile(self, benchmark):
@@ -74,6 +59,8 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
         @benchmark
         def result():
             return setup.compile()
+
+        result = mqt_to_qiskit_circuit(result, target=setup.target)
 
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)
@@ -88,14 +75,16 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
         def result():
             return setup.compile()
 
+        result = mqt_to_qiskit_circuit(result, target=setup.target)
+
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)
 
     def test_circSU2_89_transpile(self, benchmark):
-        _transpile_circsu2(89, benchmark)
+        pytest.skip("Core cannot export synthesized symbolic atan2 to Qiskit")
 
     def test_circSU2_100_transpile(self, benchmark):
-        _transpile_circsu2(100, benchmark)
+        pytest.skip("Core cannot export synthesized symbolic atan2 to Qiskit")
 
     def test_BV_100_transpile(self, benchmark):
         prog = mqt_bv_all_ones(100)
@@ -106,6 +95,8 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
         @benchmark
         def result():
             return setup.compile()
+
+        result = mqt_to_qiskit_circuit(result, target=setup.target)
 
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)
@@ -123,6 +114,8 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
         def result():
             return setup.compile()
 
+        result = mqt_to_qiskit_circuit(result, target=setup.target)
+
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)
 
@@ -138,6 +131,8 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
         def result():
             return setup.compile()
 
+        result = mqt_to_qiskit_circuit(result, target=setup.target)
+
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)
 
@@ -150,6 +145,8 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
         @benchmark
         def result():
             return setup.compile()
+
+        result = mqt_to_qiskit_circuit(result, target=setup.target)
 
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)
@@ -165,6 +162,8 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
         @benchmark
         def result():
             return setup.compile()
+
+        result = mqt_to_qiskit_circuit(result, target=setup.target)
 
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)

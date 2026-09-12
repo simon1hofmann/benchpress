@@ -17,6 +17,7 @@ import pytest
 
 from benchpress.mqt_gym.utils.io import (
     UnsupportedTargetControlFlowError,
+    mqt_to_qiskit_circuit,
     prepare_mqt_compile,
     program_num_qubits,
     program_uses_classical_control,
@@ -91,6 +92,8 @@ class TestWorkoutAbstractQasmBenchSmall(WorkoutAbstractQasmBenchSmall):
         def result():
             return setup.compile()
 
+        result = mqt_to_qiskit_circuit(result, target=setup.target)
+
         output_circuit_properties(
             result, backend.two_q_gate_type, benchmark, target=setup.target
         )
@@ -123,6 +126,8 @@ class TestWorkoutAbstractQasmBenchMedium(WorkoutAbstractQasmBenchMedium):
         def result():
             return setup.compile()
 
+        result = mqt_to_qiskit_circuit(result, target=setup.target)
+
         output_circuit_properties(
             result, backend.two_q_gate_type, benchmark, target=setup.target
         )
@@ -154,6 +159,8 @@ class TestWorkoutAbstractQasmBenchLarge(WorkoutAbstractQasmBenchLarge):
         @benchmark
         def result():
             return setup.compile()
+
+        result = mqt_to_qiskit_circuit(result, target=setup.target)
 
         output_circuit_properties(
             result, backend.two_q_gate_type, benchmark, target=setup.target

@@ -14,10 +14,9 @@ try:
     import mqt.core.mlir  # noqa: F401
 except ImportError as exc:  # pragma: no cover - import-time guard
     raise ImportError(
-        "benchpress.mqt_gym requires an MLIR-enabled mqt.core build "
-        "(mqt.core.mlir). Install the compatible revision pinned in "
-        "requirements-mqt.txt with MLIR_DIR set; the stable PyPI wheel does "
-        "not ship MLIR yet."
+        "benchpress.mqt_gym requires MQT Core 4.0.0 with mqt.core.mlir. "
+        "Install its dependencies with "
+        "python -m pip install -r requirements.txt -r requirements-mqt.txt."
     ) from exc
 
 from benchpress.config import Configuration

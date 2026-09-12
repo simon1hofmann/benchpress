@@ -11,11 +11,9 @@
 # that they have been altered from the originals.
 """I/O and compile helpers for the MQT gym."""
 
-import os
 import re
 from collections import Counter
 from dataclasses import dataclass
-from multiprocessing import get_context
 from time import perf_counter
 
 from mqt.core.mlir import (
@@ -191,7 +189,7 @@ def _supports_verified_register_feed_forward(ir: str) -> bool:
     comparisons = _comparison_signatures(ir)
     if not comparisons or any(
         register == ("unknown", -1) or register[1] != width
-        for register, _predicate, _rhs, width, _epoch in comparisons.values()
+        for register, width in comparisons.values()
     ):
         return False
     conditions = [
@@ -204,15 +202,13 @@ def _supports_verified_register_feed_forward(ir: str) -> bool:
         match.group("result"): int(match.group("value"))
         for match in _INDEX_CONSTANT_RE.finditer(ir)
     }
-    store_destinations = []
+    has_store = False
     for match in _CBIT_STORE_DESTINATION_RE.finditer(ir):
         index = index_constants.get(match.group("index"))
         if index is None:
             return False
-        store_destinations.append((match.group("register"), index))
-    if not store_destinations or len(store_destinations) != len(
-        set(store_destinations)
-    ):
+        has_store = True
+    if not has_store:
         return False
 
     if re.search(r"^\s*(?:%[^=\n]+\s*=\s*)?qco\.index_switch\b", ir, re.MULTILINE):
@@ -228,18 +224,13 @@ def _supports_verified_register_feed_forward(ir: str) -> bool:
 def _comparison_signatures(ir: str):
     """Map comparison SSA values to stable register comparison facts."""
     registers = _classical_register_identities(ir)
-    store_epochs = Counter()
     constants = {}
     reads = {}
     comparisons = {}
     for line in ir.splitlines():
-        if store := _CBIT_STORE_DESTINATION_RE.match(line):
-            store_epochs[registers.get(store.group("register"), ("unknown", -1))] += 1
         if constant := _INTEGER_CONSTANT_RE.match(line):
-            value = constant.group("value")
             constants[constant.group("result")] = (
-                value == "true" if value in {"true", "false"} else int(value),
-                1 if constant.group("width") is None else int(constant.group("width")),
+                1 if constant.group("width") is None else int(constant.group("width"))
             )
         if read := _CBIT_READ_RE.match(line):
             register = registers.get(read.group("register"), ("unknown", -1))
@@ -248,16 +239,12 @@ def _comparison_signatures(ir: str):
             reads[read.group("result")] = (
                 register,
                 result_width,
-                store_epochs[register],
                 register_width == result_width,
             )
             if register_width == result_width == 1:
                 comparisons[read.group("result")] = (
                     register,
-                    "eq",
-                    True,
                     1,
-                    store_epochs[register],
                 )
         if comparison := _ARITH_COMPARISON_RE.match(line):
             read = reads.get(comparison.group("lhs"))
@@ -266,17 +253,14 @@ def _comparison_signatures(ir: str):
             if (
                 read is None
                 or constant is None
-                or not read[3]
+                or not read[2]
                 or read[1] != width
-                or constant[1] != width
+                or constant != width
             ):
                 continue
             comparisons[comparison.group("result")] = (
                 read[0],
-                comparison.group("predicate"),
-                constant[0],
                 width,
-                read[2],
             )
     return comparisons
 
@@ -379,30 +363,37 @@ def mqt_input_circuit_properties(circuit, benchmark):
 
 
 def mqt_output_circuit_properties(circuit, two_qubit_gate, benchmark, *, target=None):
-    """Record Qiskit-equivalent output metrics for an MQT program."""
+    """Record native output metrics, counting each control-flow block once."""
     qc = (
         circuit
         if isinstance(circuit, QuantumCircuit)
         else mqt_to_qiskit_circuit(circuit, target=target)
     )
+    operations = Counter()
+    has_control_flow = False
+
+    def count(block):
+        nonlocal has_control_flow
+        operations.update(block.count_ops())
+        for instruction in block.data:
+            blocks = getattr(instruction.operation, "blocks", ())
+            if blocks:
+                has_control_flow = True
+                for child in blocks:
+                    count(child)
+
+    count(qc)
     benchmark.extra_info["output_num_qubits"] = qc.num_qubits
-    benchmark.extra_info["output_circuit_operations"] = qc.count_ops()
-    if two_qubit_gate == "2Q_GATE":
-
-        def _is_twoq(inst):
-            return getattr(inst.operation, "num_qubits", len(inst.qubits)) == 2
-
-        benchmark.extra_info["output_gate_count_2q"] = sum(
-            1 for inst in qc.data if _is_twoq(inst)
-        )
-        benchmark.extra_info["output_depth_2q"] = qc.depth(
-            filter_function=lambda inst: _is_twoq(inst)
-        )
-    else:
-        name = str(two_qubit_gate)
-        benchmark.extra_info["output_gate_count_2q"] = qc.count_ops().get(name, 0)
-        benchmark.extra_info["output_depth_2q"] = qc.depth(
-            filter_function=lambda inst: inst.operation.name == name
+    benchmark.extra_info["output_circuit_operations"] = dict(operations)
+    benchmark.extra_info["output_gate_count_2q"] = operations.get(two_qubit_gate, 0)
+    benchmark.extra_info["output_depth_2q"] = (
+        None
+        if has_control_flow
+        else qc.depth(filter_function=lambda x: x.operation.name == two_qubit_gate)
+    )
+    if has_control_flow:
+        benchmark.extra_info["control_flow_metrics"] = (
+            "static_counts_all_blocks_depth_undefined"
         )
 
 
@@ -641,145 +632,6 @@ def _mqt_compile_body(
     return qco
 
 
-def _target_spec(target):
-    """Serialize a dense Benchpress target for a timeout worker."""
-    if tuple(int(site.id) for site in target.sites) != tuple(
-        range(target.num_sites)
-    ) or any(
-        site.name is not None or site.t1 is not None or site.t2 is not None
-        for site in target.sites
-    ):
-        raise ValueError(
-            "MQT_COMPILE_TIMEOUT supports only homogeneous dense CompilerTarget values"
-        )
-    duration_unit = target.duration_unit
-    return {
-        "name": target.name,
-        "num_sites": target.num_sites,
-        "edges": (
-            target.couplings
-            if target.connectivity_kind == CompilerTarget.ConnectivityKind.EXPLICIT
-            else None
-        ),
-        "operations": (
-            [
-                {
-                    "name": operation.name,
-                    "arity": operation.arity.value,
-                    "variadic": (
-                        operation.arity.kind
-                        == CompilerTarget.OperationArityKind.VARIADIC
-                    ),
-                    "num_parameters": operation.num_parameters,
-                    "site_tuples": [
-                        {
-                            "sites": tuple(int(site) for site in site_tuple.sites),
-                            "duration": site_tuple.duration,
-                            "fidelity": site_tuple.fidelity,
-                        }
-                        for site_tuple in operation.site_tuples
-                    ],
-                    "duration": operation.duration,
-                    "fidelity": operation.fidelity,
-                }
-                for operation in target.operations
-            ]
-            if target.native_operations_kind
-            == CompilerTarget.NativeOperationsKind.EXPLICIT
-            else None
-        ),
-        "duration_unit": (
-            None
-            if duration_unit is None
-            else (duration_unit.unit, duration_unit.scale_factor)
-        ),
-    }
-
-
-def _target_from_spec(target_spec):
-    """Reconstruct a compiler target serialized by ``_target_spec``."""
-    operation_specs = target_spec["operations"]
-    operations = None
-    if operation_specs is not None:
-        operations = []
-        for operation in operation_specs:
-            arity = operation["arity"]
-            if operation["variadic"]:
-                arity = CompilerTarget.OperationArity.variadic(arity)
-            elif arity == 0:
-                arity = CompilerTarget.OperationArity.fixed(0)
-            site_tuples = [
-                CompilerTarget.SiteTuple(
-                    site_tuple["sites"],
-                    site_tuple["duration"],
-                    site_tuple["fidelity"],
-                )
-                for site_tuple in operation["site_tuples"]
-            ]
-            operations.append(
-                CompilerTarget.OperationCapability(
-                    operation["name"],
-                    arity,
-                    operation["num_parameters"],
-                    site_tuples=site_tuples,
-                    duration=operation["duration"],
-                    fidelity=operation["fidelity"],
-                )
-            )
-
-    connectivity = (
-        CompilerTarget.Connectivity.all_to_all()
-        if target_spec["edges"] is None
-        else CompilerTarget.Connectivity(target_spec["edges"])
-    )
-    native_operations = (
-        CompilerTarget.NativeOperations.unrestricted()
-        if operations is None
-        else CompilerTarget.NativeOperations(operations)
-    )
-    duration_unit_spec = target_spec["duration_unit"]
-    duration_unit = (
-        None
-        if duration_unit_spec is None
-        else CompilerTarget.DurationUnit(*duration_unit_spec)
-    )
-    target_args = (
-        (target_spec["name"], target_spec["num_sites"])
-        if target_spec["name"] is not None
-        else (target_spec["num_sites"],)
-    )
-    return CompilerTarget(
-        *target_args,
-        connectivity=connectivity,
-        native_operations=native_operations,
-        duration_unit=duration_unit,
-    )
-
-
-def _mqt_compile_worker(
-    conn, kind, mlir_text, target_spec, opts, verified_register_feed_forward
-):
-    """Child-process worker for hard compile timeouts (pickle-safe args only)."""
-    try:
-        if kind == "qco":
-            program = QCOProgram.from_mlir_str(mlir_text)
-        else:
-            program = QCProgram.from_mlir_str(mlir_text)
-        target = _target_from_spec(target_spec)
-        result = _mqt_compile_body(
-            program,
-            target,
-            copy=False,
-            opts=opts,
-            verified_register_feed_forward=verified_register_feed_forward,
-        )
-        conn.send(("ok", result.ir))
-    except Exception as exc:  # noqa: BLE001  # pragma: no cover - surfaced to parent
-        conn.send(("err", f"{type(exc).__name__}: {exc}"))
-    finally:
-        conn.close()
-
-
 def mqt_compile(
     program,
     backend_or_edges,
@@ -792,8 +644,7 @@ def mqt_compile(
     Parameters:
         program: QCProgram (or compatible) input
         backend_or_edges: BackendV2 / FlexibleBackend, ``CompilerTarget``, or
-            iterable of edges. The optional hard-timeout transport supports
-            homogeneous dense compiler targets.
+            iterable of edges.
         copy: whether to copy the QC program before lowering
         verified_register_feed_forward: whether this exact benchmark/target
             profile is approved for direct register feed-forward compilation
@@ -807,11 +658,8 @@ def mqt_compile(
         ``prepare_mqt_compile(...).compile()`` to keep input validation and
         immutable backend-to-target setup outside the timer.
 
-        ``MQT_COMPILE_TIMEOUT`` (seconds) enables a **forked** hard-kill for
-        native hangs (``pytest --timeout`` cannot interrupt MLIR C++). That
-        fork adds ~10 ms per call and **must not** be set during fair
-        timing runs. Apply any per-test watchdog outside the measured worker
-        instead.
+        Use Benchpress's ``--timeout-skip-list`` for a whole-test preflight
+        outside compilation timing.
     """
     setup = prepare_mqt_compile(
         program,
@@ -829,51 +677,15 @@ def mqt_compile(
 def _run_mqt_compile(
     program, target, copy=True, *, verified_register_feed_forward=False
 ):
-    """Execute prepared compilation in process or with a hard timeout."""
+    """Execute prepared compilation in process."""
     if isinstance(program, (QCProgram, QCOProgram)) and not program.is_valid:
         raise ValueError("Cannot compile a consumed MQT program")
     opts = _mqt_options()
 
-    timeout = float(os.environ.get("MQT_COMPILE_TIMEOUT", "0") or "0")
-    if timeout <= 0 or not isinstance(program, (QCProgram, QCOProgram)):
-        return _mqt_compile_body(
-            program,
-            target,
-            copy=copy,
-            opts=opts,
-            verified_register_feed_forward=verified_register_feed_forward,
-        )
-
-    kind = "qco" if isinstance(program, QCOProgram) else "qc"
-    mlir_text = program.ir
-    # fork is much cheaper than spawn (no interpreter relaunch); required so
-    # short timeouts reflect compile time rather than process startup.
-    # Not used for fair benchmarks — see docstring.
-    ctx = get_context("fork" if os.name != "nt" else "spawn")
-    parent_conn, child_conn = ctx.Pipe(duplex=False)
-    proc = ctx.Process(
-        target=_mqt_compile_worker,
-        args=(
-            child_conn,
-            kind,
-            mlir_text,
-            _target_spec(target),
-            opts,
-            verified_register_feed_forward,
-        ),
+    return _mqt_compile_body(
+        program,
+        target,
+        copy=copy,
+        opts=opts,
+        verified_register_feed_forward=verified_register_feed_forward,
     )
-    proc.start()
-    child_conn.close()
-    # Drain the pipe before joining. Joining first deadlocks once a successful
-    # result is larger than the OS pipe buffer.
-    if not parent_conn.poll(timeout):
-        proc.kill()
-        proc.join()
-        parent_conn.close()
-        raise TimeoutError(f"mqt_compile exceeded {timeout}s")
-    status, payload = parent_conn.recv()
-    parent_conn.close()
-    proc.join()
-    if status == "err":
-        raise RuntimeError(payload)
-    return QCOProgram.from_mlir_str(payload)

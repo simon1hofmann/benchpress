@@ -17,7 +17,7 @@ import pytest
 from qiskit.quantum_info import SparsePauliOp
 
 from benchpress.config import Configuration
-from benchpress.mqt_gym.utils.io import prepare_mqt_compile
+from benchpress.mqt_gym.utils.io import mqt_to_qiskit_circuit, prepare_mqt_compile
 from benchpress.utilities.io import input_circuit_properties, output_circuit_properties
 from benchpress.utilities.io.hamiltonians import generate_hamiltonian_circuit
 from benchpress.utilities.validation import circuit_validator
@@ -59,5 +59,7 @@ class TestWorkoutDeviceHamlibHamiltonians(WorkoutDeviceHamlibHamiltonians):
             return setup.compile()
 
         benchmark.extra_info.update(hamiltonian_info)
+        result = mqt_to_qiskit_circuit(result, target=setup.target)
+
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)

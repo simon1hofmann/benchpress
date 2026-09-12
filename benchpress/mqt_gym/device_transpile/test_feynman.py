@@ -18,6 +18,7 @@ import pytest
 from benchpress.config import Configuration
 from benchpress.mqt_gym.utils.io import (
     UnsupportedTargetControlFlowError,
+    mqt_to_qiskit_circuit,
     prepare_mqt_compile,
     program_num_qubits,
 )
@@ -74,6 +75,8 @@ class TestWorkoutDeviceFeynman(WorkoutDeviceFeynman):
         @benchmark
         def result():
             return setup.compile()
+
+        result = mqt_to_qiskit_circuit(result, target=setup.target)
 
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)

@@ -10,7 +10,14 @@
 # copyright notice, and modified files need to carry a notice indicating
 # that they have been altered from the originals.
 import os
+import signal
+import subprocess
+import sys
+from functools import partial
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+
+import pytest
 
 from benchpress.config import Configuration
 
@@ -20,6 +27,67 @@ _REPORTED_PACKAGES = {
     "qiskit_ibm_runtime": "qiskit-ibm-runtime",
     "qiskit_qasm3_import": "qiskit-qasm3-import",
 }
+
+
+@pytest.fixture
+def benchmark(benchmark, request):
+    # Native MLIR programs cannot be pickled by the plugin's forkserver preflight.
+    if benchmark.timeout_skip_list:
+        benchmark._check_timeout = partial(_timeout_preflight, benchmark, request)
+    return benchmark
+
+
+def _timeout_preflight(benchmark, request, *_args, **_kwargs):
+    command = [
+        sys.executable,
+        "-m",
+        "pytest",
+        str(request.config.rootpath / request.node.nodeid),
+        "-c",
+        str(request.config.inipath),
+        "-o",
+        "addopts=",
+        "--benchmark-disable",
+        "--timeout-skip-list=0",
+        "-q",
+    ]
+    environment = os.environ.copy()
+    environment.pop("PYTEST_ADDOPTS", None)
+    with subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        env=environment,
+        start_new_session=os.name != "nt",
+    ) as process:
+        try:
+            output, _ = process.communicate(timeout=benchmark.timeout_skip_list)
+        except subprocess.TimeoutExpired:
+            if os.name == "nt":
+                process.kill()
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
+            skipfile = Path(benchmark.skipfile)
+            entries = skipfile.read_text().splitlines() if skipfile.exists() else []
+            if benchmark.fullname not in entries:
+                with skipfile.open("a") as stream:
+                    stream.write(benchmark.fullname + "\n")
+            pytest.fail(
+                f"Test exceeded {benchmark.timeout_skip_list}s; added to {skipfile}",
+                pytrace=False,
+            )
+        if process.returncode:
+            pytest.fail(f"Timeout preflight failed:\n{output}", pytrace=False)
+
+
+def pytest_configure(config):
+    if float(os.environ.get("MQT_COMPILE_TIMEOUT", "0") or "0") > 0:
+        raise pytest.UsageError(
+            "MQT_COMPILE_TIMEOUT was removed; use --timeout-skip-list=SECONDS "
+            "for a whole-test preflight outside benchmark timing"
+        )
 
 
 def _package_version(distribution):
@@ -57,10 +125,8 @@ def pytest_benchmark_update_json(config, benchmarks, output_json):
     options = Configuration.options.get("mqt", {})
     output_json["mqt_context"] = {
         "construction_and_binding": "qiskit_frontend_adapter",
-        "device_circsu2_parameters": "numeric_seed_12345",
+        "device_circsu2_parameters": "symbolic_unsupported",
         "normalize_global_phases": options.get("normalize_global_phases", False),
         "native_gates_override": options.get("native_gates"),
-        "compile_timeout_seconds": float(
-            os.environ.get("MQT_COMPILE_TIMEOUT", "0") or "0"
-        ),
+        "timeout_scope": "whole_test_preflight",
     }

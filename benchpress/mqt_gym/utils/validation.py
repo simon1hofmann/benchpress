@@ -16,35 +16,6 @@ from qiskit import QuantumCircuit
 from benchpress.mqt_gym.utils.io import mqt_to_qiskit_circuit
 
 
-def _qiskit_style_validation(circuit, backend):
-    """Mirror Qiskit-gym validation, including all-to-all backends."""
-    circuit_ops = set(circuit.count_ops())
-    backend_ops = set(backend.operation_names) | {"barrier"}
-    unsupported_ops = circuit_ops - backend_ops
-    if unsupported_ops:
-        raise ValueError(
-            f"Circuit has gates outside backend basis set {unsupported_ops}"
-        )
-
-    coupling_map = backend.coupling_map
-    if coupling_map is None:
-        return True
-    if coupling_map.graph.num_edges() < (
-        coupling_map.graph.num_nodes() * (coupling_map.graph.num_nodes() - 1)
-    ):
-        edges = set(coupling_map.get_edges())
-        if backend.two_q_gate_type == "cz":
-            edges |= {(target, source) for source, target in edges}
-        for instruction in circuit.get_instructions(backend.two_q_gate_type):
-            edge = (
-                circuit.find_bit(instruction.qubits[0]).index,
-                circuit.find_bit(instruction.qubits[1]).index,
-            )
-            if edge not in edges:
-                raise ValueError(f"2Q gate edge {edge} not in backend topology")
-    return True
-
-
 def mqt_circuit_validation(circuit, backend, *, target=None):
     """Validate that a compiled MQT program matches backend basis and topology.
 
@@ -69,4 +40,26 @@ def mqt_circuit_validation(circuit, backend, *, target=None):
         if isinstance(circuit, QuantumCircuit)
         else mqt_to_qiskit_circuit(circuit, target=target)
     )
-    return _qiskit_style_validation(qiskit_circuit, backend)
+    backend_ops = set(backend.operation_names) | {"barrier"}
+    cmap = backend.coupling_map
+    edges = None if cmap is None else set(cmap.get_edges())
+    if edges is not None and backend.two_q_gate_type == "cz":
+        edges |= {(target, source) for source, target in edges}
+
+    def validate(block, sites):
+        for instruction in block.data:
+            name = instruction.operation.name
+            if name not in backend_ops:
+                raise ValueError(f"Circuit has gates outside backend basis set: {name}")
+            physical = tuple(sites[block.find_bit(q).index] for q in instruction.qubits)
+            if (
+                name == backend.two_q_gate_type
+                and edges is not None
+                and physical not in edges
+            ):
+                raise ValueError(f"2Q gate edge {physical} not in backend topology")
+            for child in getattr(instruction.operation, "blocks", ()):
+                validate(child, physical)
+
+    validate(qiskit_circuit, tuple(range(qiskit_circuit.num_qubits)))
+    return True

@@ -38,20 +38,17 @@ Running Benchpress is resource intensive.  Although the exact requirements depen
 
 Benchpress itself requires no installation.  However running it requires the tools in `requirements.txt`.  In addition, running each of the frameworks has its own dependencies in the corresponding `requirements-*.txt` file.
 
-### MQT Core (MLIR-enabled)
+### MQT Core
 
-The MQT gym uses the unreleased v4 `mqt.core.mlir` Compiler Collection.
-Install the exact MQT Core revision pinned in `requirements-mqt.txt`:
-`b59c8b3338ba19a705a1094540b3861d30b525db`, upstream `main` on
-2026-09-11. The stable PyPI wheel does not include the required bindings.
+The MQT gym uses the `mqt.core.mlir` Compiler Collection included in MQT Core
+4.0.0. Use Python 3.11+ and install the release pinned in `requirements-mqt.txt`:
 
-1. Use Python 3.11+, CMake 4.4.1+, and a C++20-capable compiler. On macOS, use
-   Apple Silicon, macOS 13.3+, and AppleClang 17+.
-2. Install a portable LLVM/MLIR 23.1+ toolchain, for example via
-   [setup-mlir](https://github.com/munich-quantum-software/setup-mlir).
-3. Export `MLIR_DIR` to that install’s CMake package directory. MQT Core
-   infers `LLVM_DIR` from it.
-4. `python -m pip install -r requirements.txt -r requirements-mqt.txt`
+```bash
+python -m pip install -r requirements.txt -r requirements-mqt.txt
+```
+
+On platforms with a compatible PyPI wheel, no separate LLVM/MLIR toolchain or
+`MLIR_DIR` configuration is required.
 
 Then run `python -m pytest benchpress/mqt_gym`.
 
@@ -59,9 +56,17 @@ OpenQASM benchmarks use Core's native importer and target compiler. Mapping uses
 Core's defaults, including a trial budget based on the available logical CPUs.
 Circuit construction and parameter binding use the Qiskit frontend. Native
 Qiskit export supplies output metrics and validation outside compilation timing.
+Construction and binding results carry `native_api_comparison = false`; exclude
+them from native SDK API comparisons. MQT's two symbolic device circSU2 cases
+are explicitly skipped because Core cannot export synthesized symbolic `atan2`
+expressions to Qiskit. They do not substitute numerical parameters.
 Only verified register-feed-forward profiles enable forward branching; other
 unsupported control flow is skipped. This does not establish dynamic execution
 support on a modeled hardware backend.
+
+The manipulation basis-change cases use Core's `synthesize_for_target` API,
+without full optimization or routing. The random-Clifford case uses the same
+untimed Clifford canonicalization as Qiskit.
 
 ### [pre-running] Create a skiplist
 
@@ -72,9 +77,24 @@ For example, the following line runs the tests in `benchpress/tket_gym/construct
 python -m pytest  --timeout-skip-list=3600 benchpress/tket_gym/construct
 ```
 
-This will create a `skipfile.txt` file.
+For MQT, the preflight runs the complete test in a subprocess, including input setup,
+one compilation, export, and validation. The timeout covers that entire process.
+Successful preflights are followed by ordinary in-process timing runs, without
+process-startup overhead in the recorded compilation time. This is a preflight,
+not a deadline for every later timing round.
+
+This will create a `skipfile.txt` file for timed-out cases.
 The mere existence of this file skips the tests listed there in the following executions.
 No modifier needed.
+
+The MQT-only `MQT_COMPILE_TIMEOUT` environment variable is no longer supported;
+use `--timeout-skip-list` instead.
+
+For MQT output metrics, gates in every control-flow block are counted
+once, including both branches. These are static counts, not executed gate
+counts. `output_depth_2q` is `null` for control-flow circuits because execution
+depth depends on the branch or iteration count; omit these values from depth
+comparisons. Straight-line circuit metrics are unchanged.
 
 ## Running the benchmark tests
 

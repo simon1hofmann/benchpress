@@ -12,6 +12,7 @@
 """Test circuit generation"""
 
 import numpy as np
+import pytest
 from qiskit import QuantumCircuit
 from qiskit.circuit.library import efficient_su2
 
@@ -32,6 +33,13 @@ from benchpress.workouts.build import WorkoutCircuitConstruction
 from benchpress.workouts.validation import benchpress_test_validation
 
 SEED = 12345
+
+
+@pytest.fixture(autouse=True)
+def workload_metadata(benchmark, request):
+    if "import" not in request.node.name:
+        benchmark.extra_info["workload_api"] = "qiskit_frontend_plus_mqt_import"
+        benchmark.extra_info["native_api_comparison"] = False
 
 
 @benchpress_test_validation

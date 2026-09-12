@@ -14,6 +14,7 @@
 import pytest
 
 from benchpress.mqt_gym.utils.io import (
+    mqt_to_qiskit_circuit,
     prepare_mqt_compile,
     program_num_qubits,
 )
@@ -45,6 +46,8 @@ class TestWorkoutAbstractHamiltonians(WorkoutAbstractHamiltonians):
             return setup.compile()
 
         benchmark.extra_info.update(circ_and_topo[0])
+        result = mqt_to_qiskit_circuit(result, target=setup.target)
+
         output_circuit_properties(
             result, backend.two_q_gate_type, benchmark, target=setup.target
         )
