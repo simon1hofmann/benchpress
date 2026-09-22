@@ -28,7 +28,9 @@ from mqt.core.mlir import (
     compile_program,
 )
 from qiskit import QuantumCircuit
+from qiskit.circuit import Parameter
 from qiskit.circuit.library import PauliEvolutionGate
+from qiskit.transpiler import Target
 
 from benchpress.config import Configuration
 from benchpress.mqt_gym.utils.mqt_backend_utils import (
@@ -298,7 +300,7 @@ def mqt_qasm_loader(qasm_file, benchmark):
     program = load_qasm_as_qc_program(qasm_file)
     stop = perf_counter()
     benchmark.extra_info["qasm_load_time"] = stop - start
-    benchmark.extra_info["input_num_qubits"] = program_num_qubits(program)
+    mqt_input_circuit_properties(program, benchmark)
     return program
 
 
@@ -360,6 +362,9 @@ def program_op_counts(program) -> dict:
 
 def mqt_input_circuit_properties(circuit, benchmark):
     benchmark.extra_info["input_num_qubits"] = program_num_qubits(circuit)
+    benchmark.extra_info["input_has_control_flow"] = program_uses_classical_control(
+        circuit
+    )
 
 
 def mqt_output_circuit_properties(circuit, two_qubit_gate, benchmark, *, target=None):
@@ -383,17 +388,26 @@ def mqt_output_circuit_properties(circuit, two_qubit_gate, benchmark, *, target=
                     count(child)
 
     count(qc)
+    exclude_comparison = has_control_flow or benchmark.extra_info.get(
+        "input_has_control_flow", False
+    )
     benchmark.extra_info["output_num_qubits"] = qc.num_qubits
     benchmark.extra_info["output_circuit_operations"] = dict(operations)
-    benchmark.extra_info["output_gate_count_2q"] = operations.get(two_qubit_gate, 0)
+    gate_count = operations.get(two_qubit_gate, 0)
+    benchmark.extra_info["output_gate_count_2q"] = (
+        None if exclude_comparison else gate_count
+    )
     benchmark.extra_info["output_depth_2q"] = (
         None
-        if has_control_flow
+        if exclude_comparison
         else qc.depth(filter_function=lambda x: x.operation.name == two_qubit_gate)
     )
-    if has_control_flow:
+    if exclude_comparison:
+        # Other gyms do not consistently count nested blocks. Keep the raw
+        # count separate so standard cross-tool metrics fail closed.
+        benchmark.extra_info["output_static_gate_count_2q"] = gate_count
         benchmark.extra_info["control_flow_metrics"] = (
-            "static_counts_all_blocks_depth_undefined"
+            "static_counts_all_blocks_not_cross_tool_comparable"
         )
 
 
@@ -441,6 +455,7 @@ def make_compiler_target(
             )
     operations = []
     seen = set()
+    backend_target = getattr(backend, "target", None)
     for gate in [*gates, "gphase", "measure", "reset"]:
         if (
             backend_operations is not None
@@ -451,6 +466,17 @@ def make_compiler_target(
         spec = _TARGET_GATE_SPECS.get(gate)
         if spec is None or gate in seen:
             continue
+        if (
+            isinstance(backend_target, Target)
+            and gate in backend_target.operation_names
+        ):
+            instruction = backend_target.operation_from_name(gate)
+            if any(
+                not isinstance(parameter, Parameter) for parameter in instruction.params
+            ):
+                raise ValueError(
+                    f"MQT target adapter cannot represent parameter constraints for {gate}"
+                )
         arity = CompilerTarget.OperationArity.fixed(0) if spec[0] == 0 else spec[0]
         sites = (
             operation_site_tuples(backend, gate, spec[0])
@@ -503,13 +529,6 @@ def make_compiler_target(
     )
 
 
-def _mqt_options():
-    opts = Configuration.options.get("mqt", {})
-    return {
-        "do_normalize_phases": opts.get("normalize_global_phases", False),
-    }
-
-
 def _compiler_target(program, backend_or_edges):
     """Resolve and validate the immutable target used by timed compilation."""
     logical_qubits = (
@@ -558,16 +577,25 @@ class PreparedMQTCompile:
     """
 
     program: object
-    target: CompilerTarget
-    verified_register_feed_forward: bool
+    environment: TargetEnvironment
+    normalize_global_phases: bool
 
-    def compile(self):
-        """Compile a fresh copy without repeating input and target validation."""
-        return _run_mqt_compile(
-            self.program,
-            self.target,
-            verified_register_feed_forward=self.verified_register_feed_forward,
-        )
+    @property
+    def target(self):
+        return self.environment.target
+
+    def compile(self, *, copy=True):
+        """Compile without repeating validation; copy the input by default."""
+        if (
+            isinstance(self.program, (QCProgram, QCOProgram))
+            and not self.program.is_valid
+        ):
+            raise ValueError("Cannot compile a consumed MQT program")
+        qco = _to_qco(self.program, copy=copy)
+        if self.normalize_global_phases:
+            qco.normalize_global_phases()
+        qco.compile_for_target(self.environment)
+        return qco
 
 
 def prepare_mqt_compile(
@@ -580,42 +608,15 @@ def prepare_mqt_compile(
     unsupported_reason = target_unsupported_control_flow_reason(
         program, verified_register_feed_forward=verified_register_feed_forward
     )
+    if unsupported_reason is None and not isinstance(program, QCOProgram):
+        # Lowering can introduce control flow. Check a disposable copy once;
+        # each timed compilation still copies and lowers the original input.
+        unsupported_reason = target_unsupported_control_flow_reason(
+            _to_qco(program),
+            verified_register_feed_forward=verified_register_feed_forward,
+        )
     if unsupported_reason is not None:
         raise UnsupportedTargetControlFlowError(unsupported_reason)
-    return PreparedMQTCompile(program, target, verified_register_feed_forward)
-
-
-def _mqt_compile_body(
-    program,
-    target,
-    copy=True,
-    opts=None,
-    *,
-    verified_register_feed_forward=False,
-):
-    """Lower validated input to QCO and run ``compile_for_target``."""
-    opts = opts or _mqt_options()
-    do_normalize_phases = opts["do_normalize_phases"]
-
-    if isinstance(program, QCOProgram):
-        qco = program.copy() if copy else program
-    elif isinstance(program, QCProgram):
-        qco = program.to_qco(copy=copy)
-    else:
-        qco = compile_program(program, output=OutputFormat.QCO)
-
-    # Lowering can introduce control flow even when the input passed validation.
-    unsupported_reason = target_unsupported_control_flow_reason(
-        qco, verified_register_feed_forward=verified_register_feed_forward
-    )
-    if unsupported_reason is not None:
-        raise UnsupportedTargetControlFlowError(unsupported_reason)
-
-    # Keep phase normalization outside Core's target pipeline and off by default
-    # so the optional preprocessing remains an explicit configuration choice.
-    if do_normalize_phases:
-        qco.normalize_global_phases()
-
     # This models the validated export path, not backend execution support.
     environment = TargetEnvironment(
         target,
@@ -628,8 +629,19 @@ def _mqt_compile_body(
             ),
         ),
     )
-    qco.compile_for_target(environment)
-    return qco
+    normalize_phases = Configuration.options.get("mqt", {}).get(
+        "normalize_global_phases", False
+    )
+    return PreparedMQTCompile(program, environment, normalize_phases)
+
+
+def _to_qco(program, copy=True):
+    """Use the same lowering for untimed validation and timed compilation."""
+    if isinstance(program, QCOProgram):
+        return program.copy() if copy else program
+    if isinstance(program, QCProgram):
+        return program.to_qco(copy=copy)
+    return compile_program(program, output=OutputFormat.QCO)
 
 
 def mqt_compile(
@@ -653,10 +665,10 @@ def mqt_compile(
         QCOProgram after target compilation (map + native synthesis)
 
     Timing note:
-        The default path is **in-process**. Timing includes QC-to-QCO lowering,
-        ``compile_for_target``, and the adapter's safety checks. Benchmarks use
-        ``prepare_mqt_compile(...).compile()`` to keep input validation and
-        immutable backend-to-target setup outside the timer.
+        The default path is **in-process**. Benchmarks use
+        ``prepare_mqt_compile(...).compile()`` to time input copying, QC-to-QCO
+        lowering, and ``compile_for_target``. Input and lowered-program safety
+        checks and immutable backend-to-target setup stay outside the timer.
 
         Use Benchpress's ``--timeout-skip-list`` for a whole-test preflight
         outside compilation timing.
@@ -666,26 +678,4 @@ def mqt_compile(
         backend_or_edges,
         verified_register_feed_forward=verified_register_feed_forward,
     )
-    return _run_mqt_compile(
-        setup.program,
-        setup.target,
-        copy=copy,
-        verified_register_feed_forward=setup.verified_register_feed_forward,
-    )
-
-
-def _run_mqt_compile(
-    program, target, copy=True, *, verified_register_feed_forward=False
-):
-    """Execute prepared compilation in process."""
-    if isinstance(program, (QCProgram, QCOProgram)) and not program.is_valid:
-        raise ValueError("Cannot compile a consumed MQT program")
-    opts = _mqt_options()
-
-    return _mqt_compile_body(
-        program,
-        target,
-        copy=copy,
-        opts=opts,
-        verified_register_feed_forward=verified_register_feed_forward,
-    )
+    return setup.compile(copy=copy)

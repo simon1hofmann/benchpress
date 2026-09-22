@@ -16,10 +16,10 @@ from types import SimpleNamespace
 import pytest
 from mqt.core.mlir import CompilerTarget, PayloadEncoding, QCOProgram, QCProgram
 from qiskit import QuantumCircuit
-from qiskit.circuit import ParameterVector
-from qiskit.circuit.library import efficient_su2, quantum_volume
+from qiskit.circuit import Parameter, ParameterVector
+from qiskit.circuit.library import RZGate, efficient_su2, quantum_volume
 from qiskit.quantum_info import Operator
-from qiskit.transpiler import CouplingMap
+from qiskit.transpiler import CouplingMap, Target
 
 from benchpress.mqt_gym.circuits import mqt_bv_all_ones, mqt_QV, to_qc_program
 from benchpress.mqt_gym.utils.io import (
@@ -54,6 +54,7 @@ _BIDIRECTIONAL_CX_MEASURED = _CX_MEASURED.replace(
 
 
 def test_mqt_report_records_adapter_and_runtime_options(monkeypatch):
+    import benchpress.mqt_gym.conftest as hooks
     from benchpress.config import Configuration
     from benchpress.mqt_gym.conftest import pytest_benchmark_update_json
 
@@ -62,17 +63,38 @@ def test_mqt_report_records_adapter_and_runtime_options(monkeypatch):
         "mqt",
         {"normalize_global_phases": True, "native_gates": ["sx", "rz", "cz"]},
     )
+    monkeypatch.setattr(hooks.os, "cpu_count", lambda: 6)
+    monkeypatch.setattr(
+        hooks.core_mlir,
+        "CompilationOptions",
+        lambda: SimpleNamespace(
+            seed=None,
+            mapping=SimpleNamespace(
+                trials=None, iterations=2, lookahead=17, search_memory_limit=1024
+            ),
+        ),
+    )
     report = {}
 
     pytest_benchmark_update_json(None, [], report)
 
     assert "mqt.core" in report["mqt_info"]
+    assert len(report["mqt_build"]["mlir_extension_sha256"]) == 64
     assert report["mqt_context"] == {
         "construction_and_binding": "qiskit_frontend_adapter",
         "device_circsu2_parameters": "symbolic_unsupported",
         "normalize_global_phases": True,
         "native_gates_override": ["sx", "rz", "cz"],
         "timeout_scope": "whole_test_preflight",
+        "compilation_timing": "copy_lower_compile",
+        "logical_cpus": 6,
+        "compiler_defaults": {
+            "seed": None,
+            "trials": None,
+            "iterations": 2,
+            "lookahead": 17,
+            "search_memory_limit": 1024,
+        },
     }
 
 
@@ -170,6 +192,11 @@ def test_mqt_qiskit_round_trip_preserves_parameter_vector_provenance():
         (parameter.vector.name, len(parameter.vector), parameter.index)
         for parameter in converted.parameters
     ] == [("theta", 4, 0), ("theta", 4, 2)]
+    assert set(converted.parameters) == set(circuit.parameters)
+    values = {parameters[0]: 0.25, parameters[2]: 0.5}
+    assert Operator(converted.assign_parameters(values)).equiv(
+        Operator(circuit.assign_parameters(values))
+    )
 
 
 def test_mqt_synthesizes_symbolic_single_qubit_gates_for_target():
@@ -297,13 +324,33 @@ def test_prepared_compile_reuses_validation_and_preserves_input(monkeypatch, via
     program = QCProgram.from_qiskit(source)
     if via_qco:
         program = program.to_qco()
-    setup = prepare_mqt_compile(program, FlexibleBackend(2, layout="all-to-all"))
     original_ir = program.ir
     guard = mqt_io.target_unsupported_control_flow_reason
     native_compile = QCOProgram.compile_for_target
     checked = []
 
+    def check_program(candidate, **kwargs):
+        checked.append(candidate)
+        return guard(candidate, **kwargs)
+
+    monkeypatch.setattr(mqt_io, "target_unsupported_control_flow_reason", check_program)
+    setup = prepare_mqt_compile(program, FlexibleBackend(2, layout="all-to-all"))
+    assert checked[0] is program
+    assert len(checked) == (1 if via_qco else 2)
+    assert isinstance(checked[-1], QCOProgram)
+    assert program.ir == original_ir
+
+    lower = mqt_io._to_qco
+    lowered = []
+
+    def lower_fresh_input(candidate, *, copy):
+        assert candidate is program and copy
+        result = lower(candidate, copy=copy)
+        lowered.append(result)
+        return result
+
     def compile_with_payload(candidate, environment):
+        assert environment is setup.environment
         assert environment.target.num_sites == setup.target.num_sites
         payload = environment.payload_specification
         assert payload.format.format_id == "openqasm"
@@ -313,26 +360,25 @@ def test_prepared_compile_reuses_validation_and_preserves_input(monkeypatch, via
         assert not payload.optional_capabilities_known
         return native_compile(candidate, environment)
 
-    def check_lowered_program(candidate, **kwargs):
-        assert isinstance(candidate, QCOProgram)
-        assert candidate is not program
-        checked.append(candidate)
-        return guard(candidate, **kwargs)
-
     def fail_if_reprepared(*args, **kwargs):
-        pytest.fail("prepared compilation must not rebuild or recheck the target")
+        pytest.fail("prepared compilation must not repeat validation or target setup")
 
     monkeypatch.setattr(mqt_io, "_compiler_target", fail_if_reprepared)
+    monkeypatch.setattr(mqt_io, "TargetEnvironment", fail_if_reprepared)
+    monkeypatch.setattr(mqt_io, "PayloadSpecification", fail_if_reprepared)
     monkeypatch.setattr(
-        mqt_io, "target_unsupported_control_flow_reason", check_lowered_program
+        mqt_io, "target_unsupported_control_flow_reason", fail_if_reprepared
     )
+    monkeypatch.setattr(mqt_io, "_to_qco", lower_fresh_input)
     monkeypatch.setattr(QCOProgram, "compile_for_target", compile_with_payload)
     for _ in range(2):
         result = setup.compile()
         converted = mqt_to_qiskit_circuit(result, target=setup.target)
         assert Operator(converted).equiv(Operator(source))
         assert program.ir == original_ir
-    assert len(checked) == 2
+    assert len(lowered) == 2
+    assert lowered[0] is not lowered[1]
+    assert all(candidate is not program for candidate in lowered)
 
 
 @pytest.mark.parametrize("via_qco", [False, True])
@@ -359,7 +405,6 @@ def test_prepared_compile_rejects_control_flow_introduced_by_lowering(monkeypatc
     from benchpress.utilities.backends import FlexibleBackend
 
     program = load_qasm_as_qc_program(qasm_str=_CX_MEASURED)
-    setup = prepare_mqt_compile(program, FlexibleBackend(2, layout="all-to-all"))
     dynamic = QuantumCircuit(2, 1)
     dynamic.measure(0, 0)
     with dynamic.if_test((dynamic.clbits[0], True)):
@@ -372,7 +417,7 @@ def test_prepared_compile_rejects_control_flow_introduced_by_lowering(monkeypatc
     monkeypatch.setattr(QCProgram, "to_qco", lambda *args, **kwargs: lowered)
     monkeypatch.setattr(QCOProgram, "compile_for_target", fail_if_compiled)
     with pytest.raises(NotImplementedError, match="classical control flow"):
-        setup.compile()
+        prepare_mqt_compile(program, FlexibleBackend(2, layout="all-to-all"))
 
 
 @pytest.mark.parametrize("via_qco", [False, True])
@@ -756,7 +801,7 @@ def test_public_compile_rejects_control_flow_before_native_body(monkeypatch):
     def fail_if_called(*args, **kwargs):
         pytest.fail("native target compilation must not be entered")
 
-    monkeypatch.setattr(mqt_io, "_mqt_compile_body", fail_if_called)
+    monkeypatch.setattr(QCOProgram, "compile_for_target", fail_if_called)
     with pytest.raises(NotImplementedError, match="classical control flow"):
         mqt_io.mqt_compile(prog, FlexibleBackend(2, layout="all-to-all"))
 
@@ -837,6 +882,18 @@ def test_mqt_compiler_target_rejects_gate_missing_from_backend():
             basis_gates=["u", "cz"],
             backend=backend,
         )
+
+
+@pytest.mark.parametrize("angle", [0.5, Parameter("theta") / 2])
+def test_mqt_compiler_target_rejects_parameter_constraints(angle):
+    target = Target(num_qubits=1)
+    target.add_instruction(RZGate(angle))
+    backend = SimpleNamespace(target=target, operation_names=target.operation_names)
+
+    with pytest.raises(
+        ValueError, match="cannot represent parameter constraints for rz"
+    ):
+        make_compiler_target(1, None, basis_gates=["rz"], backend=backend)
 
 
 def test_mqt_compiler_target_does_not_invent_backend_measurement_operations():

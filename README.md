@@ -40,15 +40,16 @@ Benchpress itself requires no installation.  However running it requires the too
 
 ### MQT Core
 
-The MQT gym uses the `mqt.core.mlir` Compiler Collection included in MQT Core
-4.0.0. Use Python 3.11+ and install the release pinned in `requirements-mqt.txt`:
+The MQT gym uses the `mqt.core.mlir` Compiler Collection from Core main, pinned
+to `ee7edb68a` in `requirements-mqt.txt`. Use Python 3.11+ and an LLVM/MLIR 23.1+
+installation, with `MLIR_DIR` pointing to its `lib/cmake/mlir` directory:
 
 ```bash
 python -m pip install -r requirements.txt -r requirements-mqt.txt
 ```
 
-On platforms with a compatible PyPI wheel, no separate LLVM/MLIR toolchain or
-`MLIR_DIR` configuration is required.
+This revision is built from source; the Core 4.0.0 release wheel does not include
+the newer native-basis synthesis, placement, and Qiskit import fixes.
 
 Then run `python -m pytest benchpress/mqt_gym`.
 
@@ -56,6 +57,12 @@ OpenQASM benchmarks use Core's native importer and target compiler. Mapping uses
 Core's defaults, including a trial budget based on the available logical CPUs.
 Circuit construction and parameter binding use the Qiskit frontend. Native
 Qiskit export supplies output metrics and validation outside compilation timing.
+Target compilation timing includes input copying, QC-to-QCO lowering, and native
+compilation. Control-flow safety checks run once during preparation, including
+on a disposable lowered copy; the original input remains unchanged.
+Target and payload setup stay outside the timer. Backend operation sites are
+preserved; fixed-angle or constrained-parameter target gates are rejected because
+the pinned Core target API cannot represent their restrictions.
 Construction and binding results carry `native_api_comparison = false`; exclude
 them from native SDK API comparisons. MQT's two symbolic device circSU2 cases
 are explicitly skipped because Core cannot export synthesized symbolic `atan2`
@@ -65,8 +72,19 @@ unsupported control flow is skipped. This does not establish dynamic execution
 support on a modeled hardware backend.
 
 The manipulation basis-change cases use Core's `synthesize_for_target` API,
-without full optimization or routing. The random-Clifford case uses the same
-untimed Clifford canonicalization as Qiskit.
+including native-basis block synthesis but without routing. The random-Clifford
+case uses the same untimed Clifford canonicalization as Qiskit.
+These cases use the separate `Native basis synthesis` benchmark group and carry
+`translation_only_comparison = false`; do not combine them with translation-only
+timings.
+
+JSON reports include `mqt_build` with the installed Core revision (from VCS
+metadata, or an abbreviated revision from the package version) and the MLIR
+extension's SHA-256. An unavailable revision is `null`, not the requirements pin.
+`mqt_context` records the native mapping defaults and host logical CPU count.
+A `null` trial count means Core selects its available logical CPU count; the
+host count is context, not a measured number of trials. A `null` seed means
+Core's pass defaults are unchanged.
 
 ### [pre-running] Create a skiplist
 
@@ -92,9 +110,13 @@ use `--timeout-skip-list` instead.
 
 For MQT output metrics, gates in every control-flow block are counted
 once, including both branches. These are static counts, not executed gate
-counts. `output_depth_2q` is `null` for control-flow circuits because execution
-depth depends on the branch or iteration count; omit these values from depth
-comparisons. Straight-line circuit metrics are unchanged.
+counts, retained as `output_static_gate_count_2q`. Both `output_gate_count_2q` and
+`output_depth_2q` are `null` when the input or output has control flow: other gyms
+do not use a consistent nested-block counting convention, and execution depth
+depends on the branch or iteration count. For cross-tool CZ/depth comparisons,
+use the common subset of passed cases with non-null metrics in every tool. Never
+replace missing metrics with zero. Keep these exclusions separate from
+success/failure and timing summaries. Straight-line circuit metrics are unchanged.
 
 ## Running the benchmark tests
 

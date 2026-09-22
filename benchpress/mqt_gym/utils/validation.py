@@ -12,6 +12,7 @@
 """Circuit validation for MQT MLIR programs."""
 
 from qiskit import QuantumCircuit
+from qiskit.transpiler import Target
 
 from benchpress.mqt_gym.utils.io import mqt_to_qiskit_circuit
 
@@ -45,6 +46,7 @@ def mqt_circuit_validation(circuit, backend, *, target=None):
     edges = None if cmap is None else set(cmap.get_edges())
     if edges is not None and backend.two_q_gate_type == "cz":
         edges |= {(target, source) for source, target in edges}
+    backend_target = getattr(backend, "target", None)
 
     def validate(block, sites):
         for instruction in block.data:
@@ -58,6 +60,22 @@ def mqt_circuit_validation(circuit, backend, *, target=None):
                 and physical not in edges
             ):
                 raise ValueError(f"2Q gate edge {physical} not in backend topology")
+            if isinstance(backend_target, Target) and name != "barrier":
+                supported = backend_target.instruction_supported(
+                    operation_name=name,
+                    qargs=physical,
+                    parameters=instruction.operation.params,
+                )
+                if not supported and name == "cz":
+                    supported = backend_target.instruction_supported(
+                        operation_name=name,
+                        qargs=physical[::-1],
+                        parameters=instruction.operation.params,
+                    )
+                if not supported:
+                    raise ValueError(
+                        f"Backend does not support {name} on sites {physical}"
+                    )
             for child in getattr(instruction.operation, "blocks", ()):
                 validate(child, physical)
 

@@ -11,6 +11,7 @@
 # that they have been altered from the originals.
 """Test circuit manipulation"""
 
+import pytest
 from mqt.core.mlir import (
     PayloadFormat,
     PayloadSpecification,
@@ -32,8 +33,15 @@ from benchpress.workouts.manipulate import WorkoutCircuitManipulate
 from benchpress.workouts.validation import benchpress_test_validation
 
 
+@pytest.fixture(autouse=True)
+def workload_metadata(benchmark):
+    if benchmark.group == "Native basis synthesis":
+        benchmark.extra_info["workload_api"] = "mqt_native_basis_synthesis"
+        benchmark.extra_info["translation_only_comparison"] = False
+
+
 def _basis_environment(program, gates):
-    """Prepare basis-only synthesis, without optimization or routing."""
+    """Prepare native-basis synthesis without routing."""
     nq = program_num_qubits(program)
     target = make_compiler_target(max(nq, 1), None, basis_gates=gates)
     return TargetEnvironment(
@@ -64,6 +72,7 @@ class TestWorkoutCircuitManipulate(WorkoutCircuitManipulate):
 
         assert result
 
+    @pytest.mark.benchmark(group="Native basis synthesis")
     def test_multi_control_decompose(self, benchmark):
         """Decompose a multi-control gate into the basis [rx, ry, rz, cz]."""
         circ = multi_control_circuit(16)
@@ -78,6 +87,7 @@ class TestWorkoutCircuitManipulate(WorkoutCircuitManipulate):
         benchmark.extra_info["gate_count_2q"] = gate_count_2q
         assert gate_count_2q > 0
 
+    @pytest.mark.benchmark(group="Native basis synthesis")
     def test_QV100_basis_change(self, benchmark):
         """Change a QV100 circuit basis from [rx, ry, rz, cx] to [sx, x, rz, cz]."""
         circ = qasm_circuit_loader(
@@ -94,6 +104,7 @@ class TestWorkoutCircuitManipulate(WorkoutCircuitManipulate):
         benchmark.extra_info["gate_count_2q"] = gate_count_2q
         assert gate_count_2q > 0
 
+    @pytest.mark.benchmark(group="Native basis synthesis")
     def test_random_clifford_decompose(self, benchmark):
         """Decompose a random clifford into basis [rz, sx, x, cz]."""
         cliff_circ = QuantumCircuit.from_qasm_file(
