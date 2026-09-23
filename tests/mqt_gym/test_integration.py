@@ -82,7 +82,7 @@ def test_mqt_report_records_adapter_and_runtime_options(monkeypatch):
     assert len(report["mqt_build"]["mlir_extension_sha256"]) == 64
     assert report["mqt_context"] == {
         "construction_and_binding": "qiskit_frontend_adapter",
-        "device_circsu2_parameters": "symbolic_unsupported",
+        "device_circsu2_parameters": "symbolic",
         "normalize_global_phases": True,
         "native_gates_override": ["sx", "rz", "cz"],
         "timeout_scope": "whole_test_preflight",
@@ -202,7 +202,8 @@ def test_mqt_qiskit_round_trip_preserves_parameter_vector_provenance():
 def test_mqt_synthesizes_symbolic_single_qubit_gates_for_target():
     from benchpress.utilities.backends import FlexibleBackend
 
-    program = QCProgram.from_qiskit(efficient_su2(2, reps=1, entanglement="circular"))
+    circuit = efficient_su2(2, reps=1, entanglement="circular")
+    program = QCProgram.from_qiskit(circuit)
     setup = prepare_mqt_compile(program, FlexibleBackend(3, layout="linear"))
 
     result = setup.compile()
@@ -211,6 +212,10 @@ def test_mqt_synthesizes_symbolic_single_qubit_gates_for_target():
     assert "qco.ry" not in result.ir
     assert "qco.rz" in result.ir
     assert "qco.sx" in result.ir
+
+    converted = mqt_to_qiskit_circuit(result, target=setup.target)
+    assert set(converted.parameters) == set(circuit.parameters)
+    assert set(converted.count_ops()) <= {"rz", "sx", "x", "cz", "id"}
 
 
 def test_mqt_to_qiskit_circuit_exports_structured_control_flow():

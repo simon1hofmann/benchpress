@@ -12,7 +12,7 @@
 """Test summit benchmarks"""
 
 import pytest
-from qiskit.circuit.library import QuantumVolume
+from qiskit.circuit.library import QuantumVolume, efficient_su2
 
 from benchpress.config import Configuration
 from benchpress.mqt_gym.circuits import (
@@ -81,10 +81,36 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
         assert circuit_validator(result, BACKEND, target=setup.target)
 
     def test_circSU2_89_transpile(self, benchmark):
-        pytest.skip("Core cannot export synthesized symbolic atan2 to Qiskit")
+        circuit = efficient_su2(89, reps=3, entanglement="circular")
+        prog = to_qc_program(circuit)
+        input_circuit_properties(prog, benchmark)
+        _skip_if_too_large(prog)
+        setup = _prepare(prog)
+
+        @benchmark
+        def result():
+            return setup.compile()
+
+        result = mqt_to_qiskit_circuit(result, target=setup.target)
+        assert set(result.parameters) == set(circuit.parameters)
+        output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
+        assert circuit_validator(result, BACKEND, target=setup.target)
 
     def test_circSU2_100_transpile(self, benchmark):
-        pytest.skip("Core cannot export synthesized symbolic atan2 to Qiskit")
+        circuit = efficient_su2(100, reps=3, entanglement="circular")
+        prog = to_qc_program(circuit)
+        input_circuit_properties(prog, benchmark)
+        _skip_if_too_large(prog)
+        setup = _prepare(prog)
+
+        @benchmark
+        def result():
+            return setup.compile()
+
+        result = mqt_to_qiskit_circuit(result, target=setup.target)
+        assert set(result.parameters) == set(circuit.parameters)
+        output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
+        assert circuit_validator(result, BACKEND, target=setup.target)
 
     def test_BV_100_transpile(self, benchmark):
         prog = mqt_bv_all_ones(100)

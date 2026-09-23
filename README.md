@@ -41,7 +41,7 @@ Benchpress itself requires no installation.  However running it requires the too
 ### MQT Core
 
 The MQT gym uses the `mqt.core.mlir` Compiler Collection from Core main, pinned
-to `ee7edb68a` in `requirements-mqt.txt`. Use Python 3.11+ and an LLVM/MLIR 23.1+
+to `e7b37b7a4` in `requirements-mqt.txt`. Use Python 3.11+ and an LLVM/MLIR 23.1+
 installation, with `MLIR_DIR` pointing to its `lib/cmake/mlir` directory:
 
 ```bash
@@ -49,7 +49,7 @@ python -m pip install -r requirements.txt -r requirements-mqt.txt
 ```
 
 This revision is built from source; the Core 4.0.0 release wheel does not include
-the newer native-basis synthesis, placement, and Qiskit import fixes.
+the newer native-basis synthesis, placement, and symbolic Qiskit export fixes.
 
 Then run `python -m pytest benchpress/mqt_gym`.
 
@@ -64,9 +64,8 @@ Target and payload setup stay outside the timer. Backend operation sites are
 preserved; fixed-angle or constrained-parameter target gates are rejected because
 the pinned Core target API cannot represent their restrictions.
 Construction and binding results carry `native_api_comparison = false`; exclude
-them from native SDK API comparisons. MQT's two symbolic device circSU2 cases
-are explicitly skipped because Core cannot export synthesized symbolic `atan2`
-expressions to Qiskit. They do not substitute numerical parameters.
+them from native SDK API comparisons. MQT's two device circSU2 cases compile and
+export symbolically, preserving their unbound parameters.
 Only verified register-feed-forward profiles enable forward branching; other
 unsupported control flow is skipped. This does not establish dynamic execution
 support on a modeled hardware backend.
