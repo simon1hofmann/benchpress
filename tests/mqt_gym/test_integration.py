@@ -16,8 +16,8 @@ from types import SimpleNamespace
 import pytest
 from mqt.core.mlir import CompilerTarget, PayloadEncoding, QCOProgram, QCProgram
 from qiskit import QuantumCircuit
-from qiskit.circuit import Parameter, ParameterVector
-from qiskit.circuit.library import RZGate, efficient_su2, quantum_volume
+from qiskit.circuit import ParameterVector
+from qiskit.circuit.library import efficient_su2, quantum_volume
 from qiskit.quantum_info import Operator
 from qiskit.transpiler import CouplingMap, Target
 
@@ -30,10 +30,8 @@ from benchpress.mqt_gym.utils.io import (
     prepare_mqt_compile,
     program_num_qubits,
     program_uses_classical_control,
-    target_unsupported_control_flow_reason,
 )
 from benchpress.mqt_gym.utils.mqt_backend_utils import (
-    coupling_edges,
     get_mqt_bench_backend,
 )
 
@@ -105,7 +103,7 @@ def test_mqt_fake_backend_discovery_accepts_supported_name_formats(backend_name)
     assert type(backend).__name__ == "FakeTorino"
     assert backend.num_qubits == 133
     assert backend.two_q_gate_type == "cz"
-    assert len(coupling_edges(backend)) == 300
+    assert len(backend.coupling_map.get_edges()) == 300
 
 
 def test_mqt_qiskit_builder_uses_supported_typed_mlir_bridge():
@@ -330,19 +328,8 @@ def test_prepared_compile_reuses_validation_and_preserves_input(monkeypatch, via
     if via_qco:
         program = program.to_qco()
     original_ir = program.ir
-    guard = mqt_io.target_unsupported_control_flow_reason
     native_compile = QCOProgram.compile_for_target
-    checked = []
-
-    def check_program(candidate, **kwargs):
-        checked.append(candidate)
-        return guard(candidate, **kwargs)
-
-    monkeypatch.setattr(mqt_io, "target_unsupported_control_flow_reason", check_program)
     setup = prepare_mqt_compile(program, FlexibleBackend(2, layout="all-to-all"))
-    assert checked[0] is program
-    assert len(checked) == (1 if via_qco else 2)
-    assert isinstance(checked[-1], QCOProgram)
     assert program.ir == original_ir
 
     lower = mqt_io._to_qco
@@ -361,7 +348,12 @@ def test_prepared_compile_reuses_validation_and_preserves_input(monkeypatch, via
         assert payload.format.format_id == "openqasm"
         assert payload.format.version == "3.0.0"
         assert payload.format.encoding == PayloadEncoding.TEXT
-        assert not payload.capabilities
+        assert {capability.capability_id for capability in payload.capabilities} == {
+            "forward-branching",
+            "counted-iteration",
+            "conditional-loop",
+            "multiway-branching",
+        }
         assert not payload.optional_capabilities_known
         return native_compile(candidate, environment)
 
@@ -371,9 +363,6 @@ def test_prepared_compile_reuses_validation_and_preserves_input(monkeypatch, via
     monkeypatch.setattr(mqt_io, "_compiler_target", fail_if_reprepared)
     monkeypatch.setattr(mqt_io, "TargetEnvironment", fail_if_reprepared)
     monkeypatch.setattr(mqt_io, "PayloadSpecification", fail_if_reprepared)
-    monkeypatch.setattr(
-        mqt_io, "target_unsupported_control_flow_reason", fail_if_reprepared
-    )
     monkeypatch.setattr(mqt_io, "_to_qco", lower_fresh_input)
     monkeypatch.setattr(QCOProgram, "compile_for_target", compile_with_payload)
     for _ in range(2):
@@ -404,25 +393,6 @@ def test_mqt_compile_rejects_consumed_program(via_qco, prepared):
 
     with pytest.raises(ValueError, match="consumed MQT program"):
         setup.compile() if prepared else mqt_compile(program, backend)
-
-
-def test_prepared_compile_rejects_control_flow_introduced_by_lowering(monkeypatch):
-    from benchpress.utilities.backends import FlexibleBackend
-
-    program = load_qasm_as_qc_program(qasm_str=_CX_MEASURED)
-    dynamic = QuantumCircuit(2, 1)
-    dynamic.measure(0, 0)
-    with dynamic.if_test((dynamic.clbits[0], True)):
-        dynamic.x(1)
-    lowered = QCProgram.from_qiskit(dynamic).to_qco()
-
-    def fail_if_compiled(*args, **kwargs):
-        pytest.fail("unsupported lowered control flow must not reach compilation")
-
-    monkeypatch.setattr(QCProgram, "to_qco", lambda *args, **kwargs: lowered)
-    monkeypatch.setattr(QCOProgram, "compile_for_target", fail_if_compiled)
-    with pytest.raises(NotImplementedError, match="classical control flow"):
-        prepare_mqt_compile(program, FlexibleBackend(2, layout="all-to-all"))
 
 
 @pytest.mark.parametrize("via_qco", [False, True])
@@ -538,23 +508,37 @@ def test_target_export_preserves_delayed_measurement_stores():
     assert converted.layout is None
 
 
-def test_target_preparation_rejects_qasm3_control_flow_safely():
-    """Parsing stays supported while unsafe target compilation fails early."""
+@pytest.mark.parametrize("via_qco", [False, True])
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("for int i in [0:1] { x q[i]; } c = measure q;", "11"),
+        ("c = measure q; while (c == 0) { x q[0]; c = measure q; }", "01"),
+        (
+            "x q[0]; c = measure q; if (bool(c[0]) && !bool(c[1])) { x q[1]; } c = measure q;",
+            "11",
+        ),
+    ],
+    ids=["loop-index", "while", "boolean-condition"],
+)
+def test_control_flow_compiles_and_exports_without_allowlists(body, expected, via_qco):
     from benchpress.utilities.backends import FlexibleBackend
 
-    prog = load_qasm_as_qc_program(
-        qasm_str=(
-            "OPENQASM 3.0;\n"
-            'include "stdgates.inc";\n'
-            "qubit[2] q;\n"
-            "for int i in [0:1] {\n"
-            "  h q[i];\n"
-            "}\n"
-        )
+    program = load_qasm_as_qc_program(
+        qasm_str=('OPENQASM 3.0; include "stdgates.inc"; qubit[2] q; bit[2] c; ' + body)
     )
-    assert "scf.for" in prog.ir
-    with pytest.raises(NotImplementedError, match="classical control flow"):
-        prepare_mqt_compile(prog, FlexibleBackend(2, layout="linear"))
+    if via_qco:
+        program = program.to_qco()
+    original_ir = program.ir
+    setup = prepare_mqt_compile(
+        program, FlexibleBackend(2, layout="linear", control_flow=True)
+    )
+    result = setup.compile()
+    exported = mqt_to_qiskit_circuit(result, target=setup.target)
+    restored = QCProgram.from_qiskit(exported).to_qco()
+
+    assert program.is_valid and program.ir == original_ir
+    assert restored.sample(shots=1, seed=1) == {expected: 1}
 
 
 def test_target_compilation_accepts_scalar_phase_feed_forward():
@@ -573,7 +557,7 @@ def test_target_compilation_accepts_scalar_phase_feed_forward():
     )
     backend = FlexibleBackend(2, layout="linear", control_flow=True)
 
-    setup = prepare_mqt_compile(prog, backend, verified_register_feed_forward=True)
+    setup = prepare_mqt_compile(prog, backend)
     result = setup.compile()
     converted = mqt_to_qiskit_circuit(result, target=setup.target)
 
@@ -635,7 +619,7 @@ def test_target_compilation_accepts_64_bit_qasm2_register_conditional():
     assert "arith.cmpi eq" in prog.ir
     backend = FlexibleBackend(2, layout="all-to-all", control_flow=True)
 
-    setup = prepare_mqt_compile(prog, backend, verified_register_feed_forward=True)
+    setup = prepare_mqt_compile(prog, backend)
     result = setup.compile()
     converted = mqt_to_qiskit_circuit(result, target=setup.target)
 
@@ -661,7 +645,7 @@ def test_target_compilation_accepts_65_bit_qasm2_register_conditional():
     assert "arith.cmpi eq" in prog.ir
     backend = FlexibleBackend(2, layout="all-to-all", control_flow=True)
 
-    setup = prepare_mqt_compile(prog, backend, verified_register_feed_forward=True)
+    setup = prepare_mqt_compile(prog, backend)
     result = setup.compile()
     converted = mqt_to_qiskit_circuit(result, target=setup.target)
 
@@ -676,7 +660,7 @@ def _assert_mapped_native_output(source, num_qubits, topology, expected):
 
     program = load_qasm_as_qc_program(qasm_str=source)
     backend = FlexibleBackend(num_qubits, layout=topology, control_flow=True)
-    setup = prepare_mqt_compile(program, backend, verified_register_feed_forward=True)
+    setup = prepare_mqt_compile(program, backend)
     mapped = setup.compile()
     native = mapped.to_qc(copy=True).to_qiskit(target=setup.target)
     restored = QCProgram.from_qiskit(native).to_qco()
@@ -745,107 +729,6 @@ def test_target_compilation_preserves_distinct_register_destinations(control, to
     )
 
 
-def test_verified_feed_forward_profiles_match_validated_matrix():
-    from benchpress.mqt_gym.abstract_transpile.test_qasmbench import (
-        _verified_register_feed_forward,
-    )
-
-    for filename in (
-        "inverseqft_n4.qasm",
-        "ipea_n2.qasm",
-        "qec_sm_n5.qasm",
-        "shor_n5.qasm",
-        "cc_n12.qasm",
-        "cc_n32.qasm",
-        "cc_n64.qasm",
-        "cc_n151.qasm",
-        "cc_n301.qasm",
-    ):
-        for topology in ("all-to-all", "linear", "square", "heavy-hex"):
-            assert _verified_register_feed_forward((filename, topology))
-    assert not _verified_register_feed_forward(("unknown.qasm", "linear"))
-    assert not _verified_register_feed_forward(("cc_n12.qasm", "unknown"))
-
-
-def test_verified_feynman_feed_forward_profiles_are_backend_specific():
-    from benchpress.mqt_gym.device_transpile.test_feynman import (
-        _verified_register_feed_forward,
-    )
-
-    for filename in (
-        "inverseqft1.qasm",
-        "inverseqft2.qasm",
-        "qec.qasm",
-        "teleport.qasm",
-        "teleportv2.qasm",
-    ):
-        assert _verified_register_feed_forward(
-            filename, SimpleNamespace(name="fake_torino")
-        )
-        assert not _verified_register_feed_forward(
-            filename, SimpleNamespace(name="fake_sherbrooke")
-        )
-    assert not _verified_register_feed_forward(
-        "unknown.qasm", SimpleNamespace(name="fake_torino")
-    )
-
-
-def test_public_compile_rejects_control_flow_before_native_body(monkeypatch):
-    import benchpress.mqt_gym.utils.io as mqt_io
-    from benchpress.utilities.backends import FlexibleBackend
-
-    prog = load_qasm_as_qc_program(
-        qasm_str=(
-            "OPENQASM 3.0;\n"
-            'include "stdgates.inc";\n'
-            "qubit[1] q;\n"
-            "for int i in [0:1] { h q[0]; }\n"
-        )
-    )
-
-    def fail_if_called(*args, **kwargs):
-        pytest.fail("native target compilation must not be entered")
-
-    monkeypatch.setattr(QCOProgram, "compile_for_target", fail_if_called)
-    with pytest.raises(NotImplementedError, match="classical control flow"):
-        mqt_io.mqt_compile(prog, FlexibleBackend(2, layout="all-to-all"))
-
-
-def test_target_preparation_rejects_structured_qco_control_flow():
-    from benchpress.utilities.backends import FlexibleBackend
-
-    prog = QCOProgram.from_mlir_str("""
-        module {
-          func.func @main() attributes {mqt.entry_point} {
-            %condition = arith.constant true
-            %q0 = qco.alloc : !qco.qubit
-            %q1 = qco.if %condition args(%arg0 = %q0) -> (!qco.qubit) {
-              qco.yield %arg0 : !qco.qubit
-            } else args(%arg0 = %q0) {
-              qco.yield %arg0 : !qco.qubit
-            }
-            qco.sink %q1 : !qco.qubit
-            return
-          }
-        }
-        """)
-    with pytest.raises(NotImplementedError, match="classical control flow"):
-        prepare_mqt_compile(prog, FlexibleBackend(2, layout="linear"))
-
-
-def test_control_flow_guard_ignores_operation_names_in_attributes():
-    prog = QCOProgram.from_mlir_str("""
-        module attributes {test.note = "scf.for in documentation"} {
-          func.func @main() attributes {mqt.entry_point} {
-            %q = qco.alloc : !qco.qubit
-            qco.sink %q : !qco.qubit
-            return
-          }
-        }
-        """)
-    assert target_unsupported_control_flow_reason(prog) is None
-
-
 def test_mqt_compile_uses_backend_native_gates():
     from benchpress.utilities.backends import FlexibleBackend
 
@@ -862,6 +745,46 @@ def test_mqt_compile_uses_backend_native_gates():
     assert converted.count_ops().get("cx", 0) >= 1
 
 
+@pytest.mark.parametrize("extra", ["custom", "fixed_angle"])
+def test_mqt_backend_omits_unsupported_extras_unless_requested(monkeypatch, extra):
+    from qiskit.circuit import Gate
+    from qiskit.circuit.library import RZZGate
+
+    from benchpress.config import Configuration
+    from benchpress.mqt_gym.utils.validation import mqt_circuit_validation
+    from benchpress.utilities.backends import FlexibleBackend
+
+    backend = FlexibleBackend(2, layout="linear", basis_gates=["u", "cx"])
+    unsupported = Gate("provider_gate", 2, []) if extra == "custom" else RZZGate(0.5)
+    backend.target.add_instruction(unsupported)
+    program = load_qasm_as_qc_program(qasm_str=_CX_MEASURED)
+    monkeypatch.setitem(Configuration.options, "mqt", {})
+    with pytest.warns(UserWarning, match=unsupported.name):
+        setup = prepare_mqt_compile(program, backend)
+    assert mqt_circuit_validation(setup.compile(), backend, target=setup.target)
+
+    monkeypatch.setitem(
+        Configuration.options, "mqt", {"native_gates": list(backend.operation_names)}
+    )
+    with pytest.raises(ValueError, match=unsupported.name):
+        prepare_mqt_compile(program, backend)
+
+
+def test_mqt_compiled_standard_alias_passes_backend_validation():
+    from qiskit.circuit.library import XGate
+
+    from benchpress.mqt_gym.utils.validation import mqt_circuit_validation
+    from benchpress.utilities.backends import FlexibleBackend
+
+    backend = FlexibleBackend(2, layout="linear", basis_gates=["sx", "rz", "cx"])
+    backend.target.add_instruction(XGate(), name="native_x")
+    program = load_qasm_as_qc_program(qasm_str=_CX_MEASURED.replace("h q[0]", "x q[0]"))
+    setup = prepare_mqt_compile(program, backend)
+    exported = mqt_to_qiskit_circuit(setup.compile(), target=setup.target)
+    assert "native_x" in exported.count_ops()
+    assert mqt_circuit_validation(exported, backend, target=setup.target)
+
+
 def test_mqt_compiler_target_includes_zero_qubit_global_phase():
     target = make_compiler_target(2, None, basis_gates=["rz", "sx", "x", "cz"])
 
@@ -869,62 +792,13 @@ def test_mqt_compiler_target_includes_zero_qubit_global_phase():
 
 
 def test_mqt_compiler_target_rejects_unknown_native_gate():
-    with pytest.raises(ValueError, match="Unsupported MQT native gates.*typo"):
+    with pytest.raises(KeyError, match="typo"):
         make_compiler_target(2, None, basis_gates=["rz", "typo"])
 
 
-def test_mqt_compiler_target_rejects_gate_missing_from_backend():
-    backend = SimpleNamespace(
-        num_qubits=2,
-        coupling_map=CouplingMap([(0, 1)]),
-        operation_names=["u", "cx"],
-    )
-
-    with pytest.raises(ValueError, match="does not expose.*cz"):
-        make_compiler_target(
-            2,
-            [(0, 1)],
-            basis_gates=["u", "cz"],
-            backend=backend,
-        )
-
-
-@pytest.mark.parametrize("angle", [0.5, Parameter("theta") / 2])
-def test_mqt_compiler_target_rejects_parameter_constraints(angle):
-    target = Target(num_qubits=1)
-    target.add_instruction(RZGate(angle))
-    backend = SimpleNamespace(target=target, operation_names=target.operation_names)
-
-    with pytest.raises(
-        ValueError, match="cannot represent parameter constraints for rz"
-    ):
-        make_compiler_target(1, None, basis_gates=["rz"], backend=backend)
-
-
-def test_mqt_compiler_target_does_not_invent_backend_measurement_operations():
-    backend = SimpleNamespace(
-        num_qubits=2,
-        coupling_map=CouplingMap([(0, 1)]),
-        operation_names=["u", "cx"],
-    )
-
-    target = make_compiler_target(2, [(0, 1)], basis_gates=["u", "cx"], backend=backend)
-
-    assert {operation.name for operation in target.operations} == {
-        "u",
-        "cx",
-        "gphase",
-    }
-
-
 def test_mqt_compiler_target_rejects_disconnected_backend():
-    backend = SimpleNamespace(
-        num_qubits=2,
-        coupling_map=CouplingMap(),
-        operation_names=["u", "cx"],
-    )
-
-    with pytest.raises(ValueError, match="empty coupling map"):
+    backend = Target.from_configuration(basis_gates=["x"], num_qubits=2)
+    with pytest.raises(ValueError, match="connected"):
         prepare_mqt_compile(load_qasm_as_qc_program(qasm_str=_CX_MEASURED), backend)
 
 
@@ -968,41 +842,19 @@ def test_mqt_compile_supports_backend_without_coupling_map():
     from benchpress.mqt_gym.utils.io import mqt_compile
 
     prog = load_qasm_as_qc_program(qasm_str=_CX_MEASURED)
-    backend = SimpleNamespace(
-        num_qubits=2,
-        coupling_map=None,
-        operation_names=["rz", "sx", "x", "cz", "measure", "reset"],
+    backend = Target.from_configuration(
+        num_qubits=2, basis_gates=["rz", "sx", "x", "cz", "measure", "reset"]
     )
     result = mqt_compile(prog, backend)
     assert "qco." in result.ir
 
 
-@pytest.mark.parametrize(
-    ("qargs", "supports_reverse"),
-    [(None, True), (set(), False)],
-    ids=["global", "unavailable"],
-)
-def test_mqt_compiler_target_preserves_operation_site_states(qargs, supports_reverse):
-    backend = SimpleNamespace(
-        num_qubits=2,
-        coupling_map=CouplingMap([(0, 1)]),
-        operation_names=["u", "cx", "measure", "reset"],
-        target=SimpleNamespace(
-            qargs_for_operation_name=lambda name: qargs if name == "cx" else None
-        ),
-    )
-
-    setup = prepare_mqt_compile(load_qasm_as_qc_program(qasm_str=_CX_MEASURED), backend)
-
-    assert setup.target.supports_operation("cx", 2, sites=[1, 0]) is supports_reverse
-
-
 @pytest.mark.parametrize("gate_name", ["cx", "ecr"])
 def test_mqt_compile_supports_directional_entangler_backend(gate_name):
-    backend = SimpleNamespace(
+    backend = Target.from_configuration(
         num_qubits=2,
         coupling_map=CouplingMap([(0, 1)]),
-        operation_names=["u", gate_name, "measure", "reset"],
+        basis_gates=["u", gate_name, "measure", "reset"],
     )
     prog = load_qasm_as_qc_program(qasm_str=_BIDIRECTIONAL_CX_MEASURED)
 
@@ -1029,43 +881,6 @@ def test_mqt_compile_supports_directional_entangler_backend(gate_name):
 
 
 @pytest.mark.parametrize(
-    "coupling_map",
-    [None, SimpleNamespace(get_edges=list)],
-    ids=["missing", "empty"],
-)
-def test_mqt_compile_supports_directional_configuration_fallback(coupling_map):
-    backend = SimpleNamespace(
-        num_qubits=2,
-        coupling_map=coupling_map,
-        operation_names=["u", "cx", "measure", "reset"],
-        configuration=lambda: SimpleNamespace(coupling_map=[(0, 1)]),
-    )
-    prog = load_qasm_as_qc_program(qasm_str=_BIDIRECTIONAL_CX_MEASURED)
-
-    setup = prepare_mqt_compile(prog, backend)
-    assert setup.target.supports_operation("cx", 2, sites=[0, 1])
-    assert not setup.target.supports_operation("cx", 2, sites=[1, 0])
-    setup.compile()
-
-
-def test_mqt_compile_preserves_direction_hidden_by_symmetric_map():
-    backend = SimpleNamespace(
-        num_qubits=2,
-        coupling_map=CouplingMap.from_full(2),
-        operation_names=["u", "cx", "measure", "reset"],
-        target=SimpleNamespace(
-            qargs_for_operation_name=lambda name: {(0, 1)} if name == "cx" else None
-        ),
-    )
-    prog = load_qasm_as_qc_program(qasm_str=_BIDIRECTIONAL_CX_MEASURED)
-
-    setup = prepare_mqt_compile(prog, backend)
-    assert setup.target.supports_operation("cx", 2, sites=[0, 1])
-    assert not setup.target.supports_operation("cx", 2, sites=[1, 0])
-    setup.compile()
-
-
-@pytest.mark.parametrize(
     "source, width",
     [
         ("qubit[2] a; qubit[3] b; x a[0]; x b[2];", 5),
@@ -1079,7 +894,11 @@ def test_mqt_qubit_count_preserves_allocations_after_lowering(source, width):
     )
     lowered = program.to_qco(copy=True)
     assert program_num_qubits(program) == program_num_qubits(lowered) == width
-    target = make_compiler_target(width - 1, None, basis_gates=["x"])
+    target = CompilerTarget(
+        width - 1,
+        connectivity=CompilerTarget.Connectivity.all_to_all(),
+        native_operations=CompilerTarget.NativeOperations.unrestricted(),
+    )
     for input_program in (program, lowered):
         with pytest.raises(ValueError, match=f"Circuit has {width} qubits"):
             prepare_mqt_compile(input_program, target)

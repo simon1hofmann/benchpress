@@ -1,4 +1,4 @@
-mqt-core @ git+https://github.com/munich-quantum-toolkit/core.git@e7b37b7a42291a9816b735ef8ae2e53b0f37b990
+mqt-core @ git+https://github.com/munich-quantum-toolkit/core.git@ef3cd190494e828990cf277d3a9df291995923eb
 qiskit[qasm3-import]>=2.5.0,<2.6.0
 qiskit-ibm-runtime
 numpy

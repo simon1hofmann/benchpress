@@ -40,9 +40,11 @@ Benchpress itself requires no installation.  However running it requires the too
 
 ### MQT Core
 
-The MQT gym uses the `mqt.core.mlir` Compiler Collection from Core main, pinned
-to `e7b37b7a4` in `requirements-mqt.txt`. Use Python 3.11+ and an LLVM/MLIR 23.1+
-installation, with `MLIR_DIR` pointing to its `lib/cmake/mlir` directory:
+The MQT gym uses the `mqt.core.mlir` Compiler Collection from
+[Core PR #2655](https://github.com/munich-quantum-toolkit/core/pull/2655), based on
+main and pinned to `ef3cd1904` in `requirements-mqt.txt`. This includes the Qiskit
+target adapter. Use Python 3.11+ and an LLVM/MLIR 23.1+ installation, with `MLIR_DIR`
+pointing to its `lib/cmake/mlir` directory:
 
 ```bash
 python -m pip install -r requirements.txt -r requirements-mqt.txt
@@ -58,17 +60,18 @@ Core's defaults, including a trial budget based on the available logical CPUs.
 Circuit construction and parameter binding use the Qiskit frontend. Native
 Qiskit export supplies output metrics and validation outside compilation timing.
 Target compilation timing includes input copying, QC-to-QCO lowering, and native
-compilation. Control-flow safety checks run once during preparation, including
-on a disposable lowered copy; the original input remains unchanged.
-Target and payload setup stay outside the timer. Backend operation sites are
-preserved; fixed-angle or constrained-parameter target gates are rejected because
-the pinned Core target API cannot represent their restrictions.
+compilation. The original input remains unchanged. Target and payload setup stay
+outside the timer. Core's Qiskit target adapter preserves backend aliases and
+ordered operation sites. Unsupported operations, including fixed-angle and
+constrained-parameter gates, are omitted with warnings by default and rejected
+when explicitly selected.
 Construction and binding results carry `native_api_comparison = false`; exclude
 them from native SDK API comparisons. MQT's two device circSU2 cases compile and
 export symbolically, preserving their unbound parameters.
-Only verified register-feed-forward profiles enable forward branching; other
-unsupported control flow is skipped. This does not establish dynamic execution
-support on a modeled hardware backend.
+Control flow is checked by Core's compiler and by exporting the compiled output,
+not by benchmark names or source-IR allowlists. Export failures remain visible
+with Core's diagnostic. Successful export does not imply dynamic execution support
+on the modeled backend.
 
 The manipulation basis-change cases use Core's `synthesize_for_target` API,
 including native-basis block synthesis but without routing. The random-Clifford

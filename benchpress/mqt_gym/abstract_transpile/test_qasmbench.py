@@ -11,12 +11,9 @@
 # that they have been altered from the originals.
 """Test qasmbench against abstract backend topologies"""
 
-from pathlib import Path
-
 import pytest
 
 from benchpress.mqt_gym.utils.io import (
-    UnsupportedTargetControlFlowError,
     mqt_to_qiskit_circuit,
     prepare_mqt_compile,
     program_num_qubits,
@@ -40,31 +37,6 @@ from benchpress.workouts.abstract_transpile.qasmbench import (
 )
 from benchpress.workouts.validation import benchpress_test_validation
 
-_VERIFIED_REGISTER_FEED_FORWARD = {
-    (filename, topology)
-    for filename in (
-        "inverseqft_n4.qasm",
-        "ipea_n2.qasm",
-        "qec_sm_n5.qasm",
-        "shor_n5.qasm",
-        "cc_n12.qasm",
-        "cc_n32.qasm",
-        "cc_n64.qasm",
-        "cc_n151.qasm",
-        "cc_n301.qasm",
-    )
-    for topology in ("all-to-all", "square", "heavy-hex", "linear")
-}
-
-
-def _verified_register_feed_forward(circ_and_topo):
-    """Whether this exact benchmark/topology passed the pinned Core matrix."""
-    # Structural payload checks do not establish native exporter compatibility.
-    return (
-        Path(circ_and_topo[0]).name,
-        circ_and_topo[1],
-    ) in _VERIFIED_REGISTER_FEED_FORWARD
-
 
 @benchpress_test_validation
 class TestWorkoutAbstractQasmBenchSmall(WorkoutAbstractQasmBenchSmall):
@@ -77,16 +49,7 @@ class TestWorkoutAbstractQasmBenchSmall(WorkoutAbstractQasmBenchSmall):
             layout=circ_and_topo[1],
             control_flow=uses_control_flow,
         )
-        try:
-            setup = prepare_mqt_compile(
-                prog,
-                backend,
-                verified_register_feed_forward=_verified_register_feed_forward(
-                    circ_and_topo
-                ),
-            )
-        except UnsupportedTargetControlFlowError as exc:
-            pytest.skip(str(exc))
+        setup = prepare_mqt_compile(prog, backend)
 
         @benchmark
         def result():
@@ -111,16 +74,7 @@ class TestWorkoutAbstractQasmBenchMedium(WorkoutAbstractQasmBenchMedium):
             layout=circ_and_topo[1],
             control_flow=uses_control_flow,
         )
-        try:
-            setup = prepare_mqt_compile(
-                prog,
-                backend,
-                verified_register_feed_forward=_verified_register_feed_forward(
-                    circ_and_topo
-                ),
-            )
-        except UnsupportedTargetControlFlowError as exc:
-            pytest.skip(str(exc))
+        setup = prepare_mqt_compile(prog, backend)
 
         @benchmark
         def result():
@@ -145,16 +99,7 @@ class TestWorkoutAbstractQasmBenchLarge(WorkoutAbstractQasmBenchLarge):
             layout=circ_and_topo[1],
             control_flow=uses_control_flow,
         )
-        try:
-            setup = prepare_mqt_compile(
-                prog,
-                backend,
-                verified_register_feed_forward=_verified_register_feed_forward(
-                    circ_and_topo
-                ),
-            )
-        except UnsupportedTargetControlFlowError as exc:
-            pytest.skip(str(exc))
+        setup = prepare_mqt_compile(prog, backend)
 
         @benchmark
         def result():

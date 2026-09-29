@@ -27,16 +27,12 @@ from mqt.core.mlir import (
     TargetEnvironment,
     compile_program,
 )
+from mqt.core.plugins.qiskit import compiler_target_from_qiskit
 from qiskit import QuantumCircuit
-from qiskit.circuit import Parameter
 from qiskit.circuit.library import PauliEvolutionGate
-from qiskit.transpiler import Target
+from qiskit.transpiler import CouplingMap, Target
 
 from benchpress.config import Configuration
-from benchpress.mqt_gym.utils.mqt_backend_utils import (
-    coupling_edges,
-    operation_site_tuples,
-)
 
 _STATIC_QUBIT_RE = re.compile(r"qco\.static\s+(\d+)\s*:")
 # Prefer alloc sites so load/store type annotations are not double-counted.
@@ -49,94 +45,11 @@ _SCALAR_ALLOC_QUBIT_RE = re.compile(
 )
 _MEMREF_QUBIT_RE = re.compile(r"memref<(\d+)x!qc\.qubit>")
 _QTENSOR_QUBIT_RE = re.compile(r"tensor<(\d+)x!qco\.qubit>")
-_TARGET_UNSUPPORTED_CONTROL_FLOW_RE = re.compile(
+_CONTROL_FLOW_RE = re.compile(
     r"^\s*(?:%[^=\n]+\s*=\s*)?"
     r"(?:(?:scf|cf)\.[A-Za-z_]\w*|qco\.(?:if|index_switch))\b",
     flags=re.MULTILINE,
 )
-_STRUCTURED_CONTROL_FLOW_OPERATION_RE = re.compile(
-    r"^\s*(?:%[^=\n]+\s*=\s*)?"
-    r"(?P<dialect>scf|cf)\.(?P<name>[A-Za-z_]\w*)\b",
-    flags=re.MULTILINE,
-)
-_CBIT_ALLOC_RE = re.compile(
-    r"^\s*(?P<result>%[-\w.$]+)\s*=\s*cbit\.alloc\b[^\n]*"
-    r":\s*!cbit\.reg<(?P<width>\d+)>",
-    flags=re.MULTILINE,
-)
-_INTEGER_CONSTANT_RE = re.compile(
-    r"^\s*(?P<result>%[-\w.$]+)\s*=\s*arith\.constant\s+"
-    r"(?P<value>true|false|-?\d+)(?:\s*:\s*i(?P<width>\d+))?\s*$",
-    flags=re.MULTILINE,
-)
-_CBIT_READ_RE = re.compile(
-    r"^\s*(?P<result>%[-\w.$]+)\s*=\s*cbit\.read\s+"
-    r"(?P<register>%[-\w.$]+)\s*:\s*!cbit\.reg<(?P<register_width>\d+)>"
-    r"\s*->\s*i(?P<result_width>\d+)\s*$",
-    flags=re.MULTILINE,
-)
-_ARITH_COMPARISON_RE = re.compile(
-    r"^\s*(?P<result>%[-\w.$]+)\s*=\s*arith\.cmpi\s+"
-    r"(?P<predicate>\w+)\s*,\s*(?P<lhs>%[-\w.$]+)\s*,\s*"
-    r"(?P<rhs>%[-\w.$]+)\s*:\s*i(?P<width>\d+)\s*$",
-    flags=re.MULTILINE,
-)
-_REGISTER_CONDITION_RE = re.compile(
-    r"^\s*(?:%[^=\n]+\s*=\s*)?(?:scf|qco)\.if\s+"
-    r"(?P<condition>%[-\w.$]+)\b",
-    flags=re.MULTILINE,
-)
-_INDEX_CONSTANT_RE = re.compile(
-    r"^\s*(?P<result>%[-\w.$]+)\s*=\s*arith\.constant\s+"
-    r"(?P<value>-?\d+)\s*:\s*index\b",
-    flags=re.MULTILINE,
-)
-_CBIT_STORE_DESTINATION_RE = re.compile(
-    r"^\s*cbit\.store\s+(?P<source>%[-\w.$]+)\s*,\s*"
-    r"(?P<register>%[-\w.$]+)"
-    r"\[(?P<index>%[-\w.$]+)\]",
-    flags=re.MULTILINE,
-)
-# (num_qubits, num_parameters) for CompilerTarget.OperationCapability construction.
-_TARGET_GATE_SPECS = {
-    "gphase": (0, 1),
-    "u": (1, 3),
-    "u1": (1, 1),
-    "u2": (1, 2),
-    "u3": (1, 3),
-    "p": (1, 1),
-    "x": (1, 0),
-    "y": (1, 0),
-    "z": (1, 0),
-    "h": (1, 0),
-    "s": (1, 0),
-    "sdg": (1, 0),
-    "t": (1, 0),
-    "tdg": (1, 0),
-    "sx": (1, 0),
-    "sxdg": (1, 0),
-    "rx": (1, 1),
-    "ry": (1, 1),
-    "rz": (1, 1),
-    "r": (1, 2),
-    "cx": (2, 0),
-    "cnot": (2, 0),
-    "cz": (2, 0),
-    "cy": (2, 0),
-    "ecr": (2, 0),
-    "swap": (2, 0),
-    "iswap": (2, 0),
-    "rxx": (2, 1),
-    "ryy": (2, 1),
-    "rzz": (2, 1),
-    "rzx": (2, 1),
-    "measure": (1, 0),
-    "reset": (1, 0),
-}
-
-
-class UnsupportedTargetControlFlowError(NotImplementedError):
-    """Target compilation cannot safely preserve this classical control flow."""
 
 
 def load_qasm_as_qc_program(qasm_file=None, *, qasm_str=None) -> QCProgram:
@@ -150,121 +63,7 @@ def load_qasm_as_qc_program(qasm_file=None, *, qasm_str=None) -> QCProgram:
 
 def program_uses_classical_control(program) -> bool:
     """Whether a parsed program contains structured classical control flow."""
-    return _TARGET_UNSUPPORTED_CONTROL_FLOW_RE.search(program.ir) is not None
-
-
-def target_unsupported_control_flow_reason(
-    program, *, verified_register_feed_forward=False
-) -> str | None:
-    """Explain why a program cannot safely enter target compilation.
-
-    Core checks structural payload capabilities, but not every classical form
-    supported by native Qiskit export. Callers may opt an exact benchmark profile
-    into the direct register feed-forward path after it has been verified end to
-    end on the pinned Core revision.
-    """
-    if not isinstance(program, (QCProgram, QCOProgram)):
-        return None
-    ir = program.ir
-    if _TARGET_UNSUPPORTED_CONTROL_FLOW_RE.search(ir) is not None and not (
-        verified_register_feed_forward and _supports_verified_register_feed_forward(ir)
-    ):
-        return (
-            "MQT benchmark export path does not support this classical control flow "
-            "or dynamic-index control-flow lowering"
-        )
-    return None
-
-
-def _classical_register_identities(ir: str):
-    """Map CBit SSA values to stable source register identities."""
-    registers = {}
-    for ordinal, match in enumerate(_CBIT_ALLOC_RE.finditer(ir)):
-        name_match = re.search(r'mqt\.register_name\s*=\s*"([^"]+)"', match.group(0))
-        name = name_match.group(1) if name_match else f"#{ordinal}"
-        registers[match.group("result")] = (name, int(match.group("width")))
-    return registers
-
-
-def _supports_verified_register_feed_forward(ir: str) -> bool:
-    """Recognize direct classical register feed-forward supported by Core."""
-    comparisons = _comparison_signatures(ir)
-    if not comparisons or any(
-        register == ("unknown", -1) or register[1] != width
-        for register, width in comparisons.values()
-    ):
-        return False
-    conditions = [
-        match.group("condition") for match in _REGISTER_CONDITION_RE.finditer(ir)
-    ]
-    if not conditions or any(condition not in comparisons for condition in conditions):
-        return False
-
-    index_constants = {
-        match.group("result"): int(match.group("value"))
-        for match in _INDEX_CONSTANT_RE.finditer(ir)
-    }
-    has_store = False
-    for match in _CBIT_STORE_DESTINATION_RE.finditer(ir):
-        index = index_constants.get(match.group("index"))
-        if index is None:
-            return False
-        has_store = True
-    if not has_store:
-        return False
-
-    if re.search(r"^\s*(?:%[^=\n]+\s*=\s*)?qco\.index_switch\b", ir, re.MULTILINE):
-        return False
-    for match in _STRUCTURED_CONTROL_FLOW_OPERATION_RE.finditer(ir):
-        dialect = match.group("dialect")
-        operation = match.group("name")
-        if dialect != "scf" or operation not in {"if", "yield"}:
-            return False
-    return True
-
-
-def _comparison_signatures(ir: str):
-    """Map comparison SSA values to stable register comparison facts."""
-    registers = _classical_register_identities(ir)
-    constants = {}
-    reads = {}
-    comparisons = {}
-    for line in ir.splitlines():
-        if constant := _INTEGER_CONSTANT_RE.match(line):
-            constants[constant.group("result")] = (
-                1 if constant.group("width") is None else int(constant.group("width"))
-            )
-        if read := _CBIT_READ_RE.match(line):
-            register = registers.get(read.group("register"), ("unknown", -1))
-            register_width = int(read.group("register_width"))
-            result_width = int(read.group("result_width"))
-            reads[read.group("result")] = (
-                register,
-                result_width,
-                register_width == result_width,
-            )
-            if register_width == result_width == 1:
-                comparisons[read.group("result")] = (
-                    register,
-                    1,
-                )
-        if comparison := _ARITH_COMPARISON_RE.match(line):
-            read = reads.get(comparison.group("lhs"))
-            constant = constants.get(comparison.group("rhs"))
-            width = int(comparison.group("width"))
-            if (
-                read is None
-                or constant is None
-                or not read[2]
-                or read[1] != width
-                or constant != width
-            ):
-                continue
-            comparisons[comparison.group("result")] = (
-                read[0],
-                width,
-            )
-    return comparisons
+    return _CONTROL_FLOW_RE.search(program.ir) is not None
 
 
 def mqt_to_qiskit_circuit(program, *, target=None) -> QuantumCircuit:
@@ -412,121 +211,49 @@ def mqt_output_circuit_properties(circuit, two_qubit_gate, benchmark, *, target=
 
 
 def _basis_gate_names(backend=None):
-    """Resolve native gates from an override, backend, or abstract defaults."""
-    opts = Configuration.options.get("mqt", {})
-    if "native_gates" in opts:
-        gates = opts["native_gates"]
-        if isinstance(gates, str):
-            return [g.strip() for g in gates.split(",") if g.strip()]
-        return list(gates)
-    if backend is not None:
-        basis = list(getattr(backend, "operation_names", ()))
-    else:
-        basis = list(
+    """Resolve the explicit basis, or let Core select usable backend operations."""
+    gates = Configuration.options.get("mqt", {}).get("native_gates")
+    if gates is None:
+        if backend is not None:
+            return None
+        return list(
             Configuration.options.get("general", {}).get(
                 "basis_gates", ["sx", "x", "rz", "cz"]
             )
         )
-    gates = [g for g in basis if g in _TARGET_GATE_SPECS and g not in ("id", "delay")]
-    if backend is not None and not gates:
-        raise ValueError("Backend exposes no MQT-supported native gates")
-    return gates or ["sx", "x", "rz", "cz"]
-
-
-def make_compiler_target(
-    num_qubits, edges, basis_gates=None, name=None, *, backend=None
-):
-    """Build a dense ``CompilerTarget`` for Benchpress backends."""
-    num_sites = int(num_qubits)
-    gates = list(basis_gates) if basis_gates is not None else _basis_gate_names()
-    unknown_gates = sorted(set(gates) - _TARGET_GATE_SPECS.keys() - {"id", "delay"})
-    if unknown_gates:
-        raise ValueError(f"Unsupported MQT native gates: {unknown_gates}")
-    gates = [gate for gate in gates if gate in _TARGET_GATE_SPECS]
-    backend_operations = (
-        None if backend is None else set(getattr(backend, "operation_names", ()))
+    gates = (
+        [gate.strip() for gate in gates.split(",") if gate.strip()]
+        if isinstance(gates, str)
+        else list(gates)
     )
-    if backend_operations is not None:
-        unavailable_gates = sorted(set(gates) - backend_operations - {"gphase"})
-        if unavailable_gates:
-            raise ValueError(
-                "Backend does not expose requested MQT native gates: "
-                f"{unavailable_gates}"
-            )
-    operations = []
-    seen = set()
-    backend_target = getattr(backend, "target", None)
-    for gate in [*gates, "gphase", "measure", "reset"]:
-        if (
-            backend_operations is not None
-            and gate in {"measure", "reset"}
-            and gate not in backend_operations
-        ):
-            continue
-        spec = _TARGET_GATE_SPECS.get(gate)
-        if spec is None or gate in seen:
-            continue
-        if (
-            isinstance(backend_target, Target)
-            and gate in backend_target.operation_names
-        ):
-            instruction = backend_target.operation_from_name(gate)
-            if any(
-                not isinstance(parameter, Parameter) for parameter in instruction.params
-            ):
-                raise ValueError(
-                    f"MQT target adapter cannot represent parameter constraints for {gate}"
-                )
-        arity = CompilerTarget.OperationArity.fixed(0) if spec[0] == 0 else spec[0]
-        sites = (
-            operation_site_tuples(backend, gate, spec[0])
-            if backend is not None
-            else None
-        )
-        if sites is not None and not sites:
-            continue
-        operations.append(
-            CompilerTarget.OperationCapability(
-                gate,
-                arity,
-                spec[1],
-                site_tuples=sites,
-            )
-        )
-        seen.add(gate)
-    couplings = None
+    if backend is not None:
+        gates += [
+            gate for gate in ("measure", "reset") if gate in backend.operation_names
+        ]
+    return gates
+
+
+def make_compiler_target(num_qubits, edges, basis_gates=None, name=None):
+    """Describe an abstract Qiskit target and let Core convert its contract."""
+    num_qubits = int(num_qubits)
     if edges is not None:
-        normalized_couplings = set()
+        edges = [(int(source), int(target)) for source, target in edges]
+        # CouplingMap drops self-loops and grows its width for out-of-range sites.
         for source, target in edges:
-            source = int(source)
-            target = int(target)
             if source == target:
                 raise ValueError(f"Coupling edge ({source}, {target}) is a self-loop")
-            if not 0 <= source < num_sites or not 0 <= target < num_sites:
+            if not 0 <= source < num_qubits or not 0 <= target < num_qubits:
                 raise ValueError(
                     f"Coupling edge ({source}, {target}) is outside "
-                    f"the {num_sites}-site target"
+                    f"the {num_qubits}-site target"
                 )
-            normalized_couplings.add((min(source, target), max(source, target)))
-        couplings = sorted(normalized_couplings)
-    connectivity = (
-        CompilerTarget.Connectivity.all_to_all()
-        if couplings is None or len(couplings) == num_sites * (num_sites - 1) // 2
-        else CompilerTarget.Connectivity(couplings)
+    gates = list(basis_gates) if basis_gates is not None else _basis_gate_names()
+    target = Target.from_configuration(
+        basis_gates=list(dict.fromkeys([*gates, "measure", "reset"])),
+        num_qubits=num_qubits,
+        coupling_map=None if edges is None else CouplingMap(list(edges)),
     )
-    native_operations = CompilerTarget.NativeOperations(operations)
-    if name is not None:
-        return CompilerTarget(
-            str(name),
-            num_sites,
-            connectivity=connectivity,
-            native_operations=native_operations,
-        )
-    return CompilerTarget(
-        num_sites,
-        connectivity=connectivity,
-        native_operations=native_operations,
-    )
+    return compiler_target_from_qiskit(target, name=name)
 
 
 def _compiler_target(program, backend_or_edges):
@@ -547,17 +274,13 @@ def _compiler_target(program, backend_or_edges):
 
     is_backend = hasattr(backend_or_edges, "num_qubits")
     if is_backend:
-        edges = coupling_edges(backend_or_edges)
         num_qubits = int(backend_or_edges.num_qubits)
         if logical_qubits > num_qubits:
             raise ValueError(
                 f"Circuit has {logical_qubits} qubits, but backend has {num_qubits}"
             )
-        return make_compiler_target(
-            num_qubits,
-            edges,
-            basis_gates=_basis_gate_names(backend_or_edges),
-            backend=backend_or_edges,
+        return compiler_target_from_qiskit(
+            backend_or_edges, operation_names=_basis_gate_names(backend_or_edges)
         )
 
     edges = [tuple(edge) for edge in backend_or_edges]
@@ -598,35 +321,26 @@ class PreparedMQTCompile:
         return qco
 
 
-def prepare_mqt_compile(
-    program, backend_or_edges, *, verified_register_feed_forward=False
-) -> PreparedMQTCompile:
+def prepare_mqt_compile(program, backend_or_edges) -> PreparedMQTCompile:
     """Validate input and prepare target metadata outside a benchmark timer."""
     if isinstance(program, (QCProgram, QCOProgram)) and not program.is_valid:
         raise ValueError("Cannot compile a consumed MQT program")
     target = _compiler_target(program, backend_or_edges)
-    unsupported_reason = target_unsupported_control_flow_reason(
-        program, verified_register_feed_forward=verified_register_feed_forward
-    )
-    if unsupported_reason is None and not isinstance(program, QCOProgram):
-        # Lowering can introduce control flow. Check a disposable copy once;
-        # each timed compilation still copies and lowers the original input.
-        unsupported_reason = target_unsupported_control_flow_reason(
-            _to_qco(program),
-            verified_register_feed_forward=verified_register_feed_forward,
-        )
-    if unsupported_reason is not None:
-        raise UnsupportedTargetControlFlowError(unsupported_reason)
-    # This models the validated export path, not backend execution support.
+    # Describe the output format, not the backend's dynamic execution support.
+    # Export the compiled output outside the timer to check actual compatibility.
     environment = TargetEnvironment(
         target,
         PayloadSpecification(
             PayloadFormat("openqasm", "3.0"),
-            capabilities=(
-                [ProgramCapability(ProgramCapability.FORWARD_BRANCHING)]
-                if verified_register_feed_forward
-                else []
-            ),
+            capabilities=[
+                ProgramCapability(capability)
+                for capability in (
+                    ProgramCapability.FORWARD_BRANCHING,
+                    ProgramCapability.COUNTED_ITERATION,
+                    ProgramCapability.CONDITIONAL_LOOP,
+                    ProgramCapability.MULTIWAY_BRANCHING,
+                )
+            ],
         ),
     )
     normalize_phases = Configuration.options.get("mqt", {}).get(
@@ -636,7 +350,7 @@ def prepare_mqt_compile(
 
 
 def _to_qco(program, copy=True):
-    """Use the same lowering for untimed validation and timed compilation."""
+    """Lower a fresh copy inside each timed compilation."""
     if isinstance(program, QCOProgram):
         return program.copy() if copy else program
     if isinstance(program, QCProgram):
@@ -644,13 +358,7 @@ def _to_qco(program, copy=True):
     return compile_program(program, output=OutputFormat.QCO)
 
 
-def mqt_compile(
-    program,
-    backend_or_edges,
-    copy=True,
-    *,
-    verified_register_feed_forward=False,
-):
+def mqt_compile(program, backend_or_edges, copy=True):
     """Compile a program for a coupling graph via ``compile_for_target``.
 
     Parameters:
@@ -658,8 +366,6 @@ def mqt_compile(
         backend_or_edges: BackendV2 / FlexibleBackend, ``CompilerTarget``, or
             iterable of edges.
         copy: whether to copy the QC program before lowering
-        verified_register_feed_forward: whether this exact benchmark/target
-            profile is approved for direct register feed-forward compilation
 
     Returns:
         QCOProgram after target compilation (map + native synthesis)
@@ -667,15 +373,11 @@ def mqt_compile(
     Timing note:
         The default path is **in-process**. Benchmarks use
         ``prepare_mqt_compile(...).compile()`` to time input copying, QC-to-QCO
-        lowering, and ``compile_for_target``. Input and lowered-program safety
-        checks and immutable backend-to-target setup stay outside the timer.
+        lowering, and ``compile_for_target``. Immutable target setup and output
+        export/validation stay outside the timer.
 
         Use Benchpress's ``--timeout-skip-list`` for a whole-test preflight
         outside compilation timing.
     """
-    setup = prepare_mqt_compile(
-        program,
-        backend_or_edges,
-        verified_register_feed_forward=verified_register_feed_forward,
-    )
+    setup = prepare_mqt_compile(program, backend_or_edges)
     return setup.compile(copy=copy)

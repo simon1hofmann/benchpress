@@ -17,7 +17,6 @@ import pytest
 
 from benchpress.config import Configuration
 from benchpress.mqt_gym.utils.io import (
-    UnsupportedTargetControlFlowError,
     mqt_to_qiskit_circuit,
     prepare_mqt_compile,
     program_num_qubits,
@@ -29,22 +28,6 @@ from benchpress.workouts.validation import benchpress_test_validation
 
 BACKEND = Configuration.backend()
 TWO_Q_GATE = BACKEND.two_q_gate_type
-
-_VERIFIED_REGISTER_FEED_FORWARD = {
-    (filename, "fake_torino")
-    for filename in (
-        "inverseqft1.qasm",
-        "inverseqft2.qasm",
-        "qec.qasm",
-        "teleport.qasm",
-        "teleportv2.qasm",
-    )
-}
-
-
-def _verified_register_feed_forward(filename, backend):
-    """Keep device control opt-ins specific to the validated workload/backend."""
-    return (filename, backend.name) in _VERIFIED_REGISTER_FEED_FORWARD
 
 
 def pytest_generate_tests(metafunc):
@@ -61,16 +44,7 @@ class TestWorkoutDeviceFeynman(WorkoutDeviceFeynman):
         prog = qasm_circuit_loader(qasm_file, benchmark)
         if program_num_qubits(prog) > BACKEND.num_qubits:
             pytest.skip("Circuit too large for given backend.")
-        try:
-            setup = prepare_mqt_compile(
-                prog,
-                BACKEND,
-                verified_register_feed_forward=_verified_register_feed_forward(
-                    filename, BACKEND
-                ),
-            )
-        except UnsupportedTargetControlFlowError as exc:
-            pytest.skip(str(exc))
+        setup = prepare_mqt_compile(prog, BACKEND)
 
         @benchmark
         def result():
