@@ -745,43 +745,47 @@ def test_mqt_compile_uses_backend_native_gates():
     assert converted.count_ops().get("cx", 0) >= 1
 
 
-@pytest.mark.parametrize("extra", ["custom", "fixed_angle"])
+@pytest.mark.parametrize("extra", ["custom", "fixed_angle", "alias"])
 def test_mqt_backend_omits_unsupported_extras_unless_requested(monkeypatch, extra):
     from qiskit.circuit import Gate
-    from qiskit.circuit.library import RZZGate
+    from qiskit.circuit.library import RZZGate, XGate
 
     from benchpress.config import Configuration
     from benchpress.mqt_gym.utils.validation import mqt_circuit_validation
     from benchpress.utilities.backends import FlexibleBackend
 
     backend = FlexibleBackend(2, layout="linear", basis_gates=["u", "cx"])
-    unsupported = Gate("provider_gate", 2, []) if extra == "custom" else RZZGate(0.5)
-    backend.target.add_instruction(unsupported)
+    unsupported = {
+        "custom": Gate("provider_gate", 2, []),
+        "fixed_angle": RZZGate(0.5),
+        "alias": XGate(),
+    }[extra]
+    name = "native_x" if extra == "alias" else unsupported.name
+    backend.target.add_instruction(unsupported, name=name)
     program = load_qasm_as_qc_program(qasm_str=_CX_MEASURED)
     monkeypatch.setitem(Configuration.options, "mqt", {})
-    with pytest.warns(UserWarning, match=unsupported.name):
+    with pytest.warns(UserWarning, match=name):
         setup = prepare_mqt_compile(program, backend)
     assert mqt_circuit_validation(setup.compile(), backend, target=setup.target)
 
     monkeypatch.setitem(
-        Configuration.options, "mqt", {"native_gates": list(backend.operation_names)}
+        Configuration.options, "mqt", {"native_gates": ["u", "cx", name]}
     )
-    with pytest.raises(ValueError, match=unsupported.name):
+    with pytest.raises(ValueError, match=name):
         prepare_mqt_compile(program, backend)
 
 
 def test_mqt_compiled_standard_alias_passes_backend_validation():
-    from qiskit.circuit.library import XGate
+    from qiskit.circuit.library import U3Gate
 
     from benchpress.mqt_gym.utils.validation import mqt_circuit_validation
     from benchpress.utilities.backends import FlexibleBackend
 
-    backend = FlexibleBackend(2, layout="linear", basis_gates=["sx", "rz", "cx"])
-    backend.target.add_instruction(XGate(), name="native_x")
-    program = load_qasm_as_qc_program(qasm_str=_CX_MEASURED.replace("h q[0]", "x q[0]"))
+    backend = FlexibleBackend(2, layout="linear", basis_gates=["u1", "u2", "u3", "cx"])
+    program = load_qasm_as_qc_program(qasm_str=_CX_MEASURED)
     setup = prepare_mqt_compile(program, backend)
     exported = mqt_to_qiskit_circuit(setup.compile(), target=setup.target)
-    assert "native_x" in exported.count_ops()
+    assert any(item.operation.base_class is U3Gate for item in exported.data)
     assert mqt_circuit_validation(exported, backend, target=setup.target)
 
 

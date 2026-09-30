@@ -42,7 +42,7 @@ Benchpress itself requires no installation.  However running it requires the too
 
 The MQT gym uses the `mqt.core.mlir` Compiler Collection from
 [Core PR #2655](https://github.com/munich-quantum-toolkit/core/pull/2655), based on
-main and pinned to `ef3cd1904` in `requirements-mqt.txt`. This includes the Qiskit
+main and pinned to `a98ec0bb4` in `requirements-mqt.txt`. This includes the Qiskit
 target adapter. Use Python 3.11+ and an LLVM/MLIR 23.1+ installation, with `MLIR_DIR`
 pointing to its `lib/cmake/mlir` directory:
 
@@ -61,10 +61,11 @@ Circuit construction and parameter binding use the Qiskit frontend. Native
 Qiskit export supplies output metrics and validation outside compilation timing.
 Target compilation timing includes input copying, QC-to-QCO lowering, and native
 compilation. The original input remains unchanged. Target and payload setup stay
-outside the timer. Core's Qiskit target adapter preserves backend aliases and
-ordered operation sites. Unsupported operations, including fixed-angle and
-constrained-parameter gates, are omitted with warnings by default and rejected
-when explicitly selected.
+outside the timer. Core's Qiskit target adapter preserves standard gate names,
+including legacy `u1`/`u3`, and ordered operation sites. Custom operation names,
+unsupported gates, fixed parameters, and restrictive angle bounds are omitted
+with warnings by default and rejected when explicitly selected. Symbolic target
+parameters follow Qiskit's wildcard matching semantics.
 Construction and binding results carry `native_api_comparison = false`; exclude
 them from native SDK API comparisons. MQT's two device circSU2 cases compile and
 export symbolically, preserving their unbound parameters.
