@@ -38,34 +38,6 @@ Running Benchpress is resource intensive.  Although the exact requirements depen
 
 Benchpress itself requires no installation.  However running it requires the tools in `requirements.txt`.  In addition, running each of the frameworks has its own dependencies in the corresponding `requirements-*.txt` file.
 
-### MQT Core
-
-The MQT gym uses MQT Core 4.1's Compiler Collection. Install its dependencies
-and run the benchmarks with:
-
-```bash
-python -m pip install -r requirements.txt -r requirements-mqt.txt
-python -m pytest benchpress/mqt_gym
-```
-
-Mapping uses Core's defaults, including its CPU-dependent trial budget.
-Compilation timing includes fresh input copying, Qiskit import where applicable,
-QC-to-QCO lowering, target compilation, and conversion back to native QC.
-OpenQASM parsing, target setup, and Qiskit export/validation stay outside the
-timer. Core builds its pass pipeline inside each compilation; Qiskit prepares
-its preset pass manager outside the timer. Reports label this boundary
-`copy_import_lower_compile_to_qc`.
-
-Circuit construction uses Qiskit and is marked `native_api_comparison = false`.
-Parameter binding uses Core's native API on a fresh copy.
-Basis-change benchmarks use native block synthesis without routing, rather than
-translation alone; their `Native basis synthesis` group is marked
-`translation_only_comparison = false`.
-
-Reports record the installed Core build, extension hash, and mapping defaults.
-Core inspection supplies input properties; target-aware Qiskit export supplies
-physical output metrics and validation outside compilation timing.
-
 ### [pre-running] Create a skiplist
 
 With the parameter `--timeout-skip-list=<SECs>`, a  *skiplist* (a list of tests to skip, given they take too long) is created.
@@ -75,25 +47,9 @@ For example, the following line runs the tests in `benchpress/tket_gym/construct
 python -m pytest  --timeout-skip-list=3600 benchpress/tket_gym/construct
 ```
 
-For MQT, the preflight runs the complete test in a subprocess, including input setup,
-one compilation, export, and validation. The timeout covers that entire process.
-Successful preflights are followed by ordinary in-process timing runs, without
-process-startup overhead in the recorded compilation time. This is a preflight,
-not a deadline for every later timing round.
-
 This will create a `skipfile.txt` file for timed-out cases.
 The mere existence of this file skips the tests listed there in the following executions.
 No modifier needed.
-
-For MQT output metrics, gates in every control-flow block are counted
-once, including both branches. These are static counts, not executed gate
-counts, retained as `output_static_gate_count_2q`. Both `output_gate_count_2q` and
-`output_depth_2q` are `null` when the input or output has control flow: other gyms
-do not use a consistent nested-block counting convention, and execution depth
-depends on the branch or iteration count. For cross-tool CZ/depth comparisons,
-use the common subset of passed cases with non-null metrics in every tool. Never
-replace missing metrics with zero. Keep these exclusions separate from
-success/failure and timing summaries. Straight-line circuit metrics are unchanged.
 
 ## Running the benchmark tests
 

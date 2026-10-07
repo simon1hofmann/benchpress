@@ -53,7 +53,7 @@ def test_mqt_report_records_adapter_and_runtime_options(monkeypatch):
     monkeypatch.setitem(
         Configuration.options,
         "mqt",
-        {"normalize_global_phases": True, "native_gates": ["sx", "rz", "cz"]},
+        {"native_gates": ["sx", "rz", "cz"]},
     )
     monkeypatch.setattr(hooks.os, "cpu_count", lambda: 6)
     monkeypatch.setattr(
@@ -75,7 +75,6 @@ def test_mqt_report_records_adapter_and_runtime_options(monkeypatch):
     assert report["mqt_context"] == {
         "construction_and_binding": "qiskit_construction_mqt_binding",
         "device_circsu2_parameters": "symbolic",
-        "normalize_global_phases": True,
         "native_gates_override": ["sx", "rz", "cz"],
         "timeout_scope": "whole_test_preflight",
         "compilation_timing": "copy_import_lower_compile_to_qc",

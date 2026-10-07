@@ -216,7 +216,6 @@ class PreparedMQTCompile:
 
     program: object
     environment: TargetEnvironment
-    normalize_global_phases: bool
 
     @property
     def target(self):
@@ -230,8 +229,6 @@ class PreparedMQTCompile:
         ):
             raise ValueError("Cannot compile a consumed MQT program")
         qco = _to_qco(self.program)
-        if self.normalize_global_phases:
-            qco.normalize_global_phases()
         qco.compile_for_target(self.environment)
         return qco
 
@@ -258,10 +255,7 @@ def prepare_mqt_compile(program, backend) -> PreparedMQTCompile:
             ],
         ),
     )
-    normalize_phases = Configuration.options.get("mqt", {}).get(
-        "normalize_global_phases", False
-    )
-    return PreparedMQTCompile(program, environment, normalize_phases)
+    return PreparedMQTCompile(program, environment)
 
 
 def _to_qco(program):
