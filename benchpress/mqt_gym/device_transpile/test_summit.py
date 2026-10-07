@@ -57,8 +57,8 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         result = result.to_qiskit(target=setup.target)
 
-        output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
-        assert circuit_validator(result, BACKEND, target=setup.target)
+        output_circuit_properties(result, TWO_Q_GATE, benchmark)
+        assert circuit_validator(result, BACKEND)
 
     def test_QV_100_transpile(self, benchmark):
         prog = QuantumVolume(100, 100, seed=12345)
@@ -72,8 +72,8 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         result = result.to_qiskit(target=setup.target)
 
-        output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
-        assert circuit_validator(result, BACKEND, target=setup.target)
+        output_circuit_properties(result, TWO_Q_GATE, benchmark)
+        assert circuit_validator(result, BACKEND)
 
     def test_circSU2_89_transpile(self, benchmark):
         prog = efficient_su2(89, reps=3, entanglement="circular")
@@ -87,8 +87,8 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         result = result.to_qiskit(target=setup.target)
         assert set(result.parameters) == set(prog.parameters)
-        output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
-        assert circuit_validator(result, BACKEND, target=setup.target)
+        output_circuit_properties(result, TWO_Q_GATE, benchmark)
+        assert circuit_validator(result, BACKEND)
 
     def test_circSU2_100_transpile(self, benchmark):
         prog = efficient_su2(100, reps=3, entanglement="circular")
@@ -102,8 +102,8 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         result = result.to_qiskit(target=setup.target)
         assert set(result.parameters) == set(prog.parameters)
-        output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
-        assert circuit_validator(result, BACKEND, target=setup.target)
+        output_circuit_properties(result, TWO_Q_GATE, benchmark)
+        assert circuit_validator(result, BACKEND)
 
     def test_BV_100_transpile(self, benchmark):
         prog = bv_all_ones(100)
@@ -117,8 +117,8 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         result = result.to_qiskit(target=setup.target)
 
-        output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
-        assert circuit_validator(result, BACKEND, target=setup.target)
+        output_circuit_properties(result, TWO_Q_GATE, benchmark)
+        assert circuit_validator(result, BACKEND)
 
     def test_square_heisenberg_100_transpile(self, benchmark):
         prog = qasm_circuit_loader(
@@ -135,8 +135,8 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         result = result.to_qiskit(target=setup.target)
 
-        output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
-        assert circuit_validator(result, BACKEND, target=setup.target)
+        output_circuit_properties(result, TWO_Q_GATE, benchmark)
+        assert circuit_validator(result, BACKEND)
 
     def test_QAOA_100_transpile(self, benchmark):
         prog = qasm_circuit_loader(
@@ -152,8 +152,8 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         result = result.to_qiskit(target=setup.target)
 
-        output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
-        assert circuit_validator(result, BACKEND, target=setup.target)
+        output_circuit_properties(result, TWO_Q_GATE, benchmark)
+        assert circuit_validator(result, BACKEND)
 
     def test_BVlike_simplification_transpile(self, benchmark):
         prog = trivial_bvlike_circuit(100)
@@ -167,8 +167,8 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         result = result.to_qiskit(target=setup.target)
 
-        output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
-        assert circuit_validator(result, BACKEND, target=setup.target)
+        output_circuit_properties(result, TWO_Q_GATE, benchmark)
+        assert circuit_validator(result, BACKEND)
 
     def test_clifford_100_transpile(self, benchmark):
         prog = qasm_circuit_loader(
@@ -184,5 +184,5 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         result = result.to_qiskit(target=setup.target)
 
-        output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
-        assert circuit_validator(result, BACKEND, target=setup.target)
+        output_circuit_properties(result, TWO_Q_GATE, benchmark)
+        assert circuit_validator(result, BACKEND)

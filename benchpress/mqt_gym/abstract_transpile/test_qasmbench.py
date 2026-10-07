@@ -56,10 +56,8 @@ class TestWorkoutAbstractQasmBenchSmall(WorkoutAbstractQasmBenchSmall):
 
         result = result.to_qiskit(target=setup.target)
 
-        output_circuit_properties(
-            result, backend.two_q_gate_type, benchmark, target=setup.target
-        )
-        assert circuit_validator(result, backend, target=setup.target)
+        output_circuit_properties(result, backend.two_q_gate_type, benchmark)
+        assert circuit_validator(result, backend)
 
 
 @benchpress_test_validation
@@ -81,10 +79,8 @@ class TestWorkoutAbstractQasmBenchMedium(WorkoutAbstractQasmBenchMedium):
 
         result = result.to_qiskit(target=setup.target)
 
-        output_circuit_properties(
-            result, backend.two_q_gate_type, benchmark, target=setup.target
-        )
-        assert circuit_validator(result, backend, target=setup.target)
+        output_circuit_properties(result, backend.two_q_gate_type, benchmark)
+        assert circuit_validator(result, backend)
 
 
 @benchpress_test_validation
@@ -106,7 +102,5 @@ class TestWorkoutAbstractQasmBenchLarge(WorkoutAbstractQasmBenchLarge):
 
         result = result.to_qiskit(target=setup.target)
 
-        output_circuit_properties(
-            result, backend.two_q_gate_type, benchmark, target=setup.target
-        )
-        assert circuit_validator(result, backend, target=setup.target)
+        output_circuit_properties(result, backend.two_q_gate_type, benchmark)
+        assert circuit_validator(result, backend)

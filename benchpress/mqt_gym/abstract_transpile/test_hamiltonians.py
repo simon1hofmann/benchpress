@@ -47,7 +47,5 @@ class TestWorkoutAbstractHamiltonians(WorkoutAbstractHamiltonians):
         benchmark.extra_info.update(circ_and_topo[0])
         result = result.to_qiskit(target=setup.target)
 
-        output_circuit_properties(
-            result, backend.two_q_gate_type, benchmark, target=setup.target
-        )
-        assert circuit_validator(result, backend, target=setup.target)
+        output_circuit_properties(result, backend.two_q_gate_type, benchmark)
+        assert circuit_validator(result, backend)

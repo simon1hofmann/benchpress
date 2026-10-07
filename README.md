@@ -36,7 +36,7 @@ Running Benchpress is resource intensive.  Although the exact requirements depen
 
 ## Installation
 
-Benchpress itself requires no installation.  However running it requires the tools in `requirements.txt`.  In addition, running each of the frameworks has its own dependencies in the corresponding `requirements-*.txt` file.
+Benchpress itself requires no installation.  However running it requires the tools in `requirements.txt`.  In addition, running each of the frameworks has its own dependencies in the corresponding `*-requirements.txt` file
 
 ### [pre-running] Create a skiplist
 
@@ -47,7 +47,7 @@ For example, the following line runs the tests in `benchpress/tket_gym/construct
 python -m pytest  --timeout-skip-list=3600 benchpress/tket_gym/construct
 ```
 
-This will create a `skipfile.txt` file for timed-out cases.
+This will create a `skipfile.txt` file.
 The mere existence of this file skips the tests listed there in the following executions.
 No modifier needed.
 

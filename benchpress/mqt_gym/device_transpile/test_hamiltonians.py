@@ -61,5 +61,5 @@ class TestWorkoutDeviceHamlibHamiltonians(WorkoutDeviceHamlibHamiltonians):
         benchmark.extra_info.update(hamiltonian_info)
         result = result.to_qiskit(target=setup.target)
 
-        output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
-        assert circuit_validator(result, BACKEND, target=setup.target)
+        output_circuit_properties(result, TWO_Q_GATE, benchmark)
+        assert circuit_validator(result, BACKEND)

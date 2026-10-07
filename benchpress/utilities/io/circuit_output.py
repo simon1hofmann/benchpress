@@ -14,13 +14,12 @@
 from benchpress.config import Configuration
 
 
-def output_circuit_properties(circuit, two_qubit_gate, benchmark, *, target=None):
+def output_circuit_properties(circuit, two_qubit_gate, benchmark):
     """Return circuit statistics
 
     circuit : Input quantum circuit
     two_qubit_gate : Target two-qubit gate
     benchmark (Benchmark): Benchmark class to record info to
-    target : Optional compiler target for MQT physical export
 
     """
     gym_name = Configuration.gym_name
@@ -61,6 +60,6 @@ def output_circuit_properties(circuit, two_qubit_gate, benchmark, *, target=None
     elif gym_name == "mqt":
         from benchpress.mqt_gym.utils.io import mqt_output_circuit_properties
 
-        mqt_output_circuit_properties(circuit, two_qubit_gate, benchmark, target=target)
+        mqt_output_circuit_properties(circuit, two_qubit_gate, benchmark)
     else:
-        raise Exception(f"Unsupported gym name {gym_name}")  # noqa: TRY002
+        raise Exception(f"Unsupported gym name {gym_name}")

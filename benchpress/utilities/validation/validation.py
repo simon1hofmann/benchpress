@@ -14,14 +14,13 @@
 from benchpress.config import Configuration
 
 
-def circuit_validator(circuit, backend, *, target=None):
+def circuit_validator(circuit, backend):
     """Validate a circuit matches the gate set and
     topology of the target backend
 
     Parameters:
         circuit : Input circuit
         backend : Target backend
-        target : Optional compiler target for MQT physical export
     """
     gym_name = Configuration.gym_name
     if gym_name in ["qiskit", "qiskit-ibm-transpiler"]:
@@ -49,7 +48,7 @@ def circuit_validator(circuit, backend, *, target=None):
     elif gym_name == "mqt":
         from benchpress.mqt_gym.utils.validation import mqt_circuit_validation
 
-        mqt_circuit_validation(circuit, backend, target=target)
+        mqt_circuit_validation(circuit, backend)
     else:
         raise ValueError(f"Unknown gym name {gym_name}")
     return True
