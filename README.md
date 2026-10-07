@@ -40,73 +40,31 @@ Benchpress itself requires no installation.  However running it requires the too
 
 ### MQT Core
 
-The MQT gym uses the `mqt.core.mlir` Compiler Collection from Core main,
-pinned to `32a3a05e3` in `requirements-mqt.txt`. Qiskit targets and backends
-are converted with `CompilerTarget.from_qiskit()`.
-Use Python 3.11+ and an LLVM/MLIR 23.1+ installation, with `MLIR_DIR`
-pointing to its `lib/cmake/mlir` directory:
+The MQT gym uses MQT Core 4.1's Compiler Collection. Install its dependencies
+and run the benchmarks with:
 
 ```bash
 python -m pip install -r requirements.txt -r requirements-mqt.txt
+python -m pytest benchpress/mqt_gym
 ```
 
-This revision is built from source; the Core 4.0.0 release wheel does not include
-the newer native-basis synthesis, placement, and symbolic Qiskit export fixes.
+Mapping uses Core's defaults, including its CPU-dependent trial budget.
+Compilation timing includes fresh input copying, Qiskit import where applicable,
+QC-to-QCO lowering, target compilation, and conversion back to native QC.
+OpenQASM parsing, target setup, and Qiskit export/validation stay outside the
+timer. Core builds its pass pipeline inside each compilation; Qiskit prepares
+its preset pass manager outside the timer. Reports label this boundary
+`copy_import_lower_compile_to_qc`.
 
-Then run `python -m pytest benchpress/mqt_gym`.
+Circuit construction uses Qiskit and is marked `native_api_comparison = false`.
+Parameter binding uses Core's native API on a fresh copy.
+Basis-change benchmarks use native block synthesis without routing, rather than
+translation alone; their `Native basis synthesis` group is marked
+`translation_only_comparison = false`.
 
-OpenQASM benchmarks use Core's native importer and target compiler. Mapping uses
-Core's defaults, including a trial budget based on the available logical CPUs.
-Circuit construction uses the Qiskit frontend. Parameter binding uses Core's
-native `bind_parameters()` API on a fresh program copy; circuit construction,
-import, and name-to-value mapping stay outside the binding timer.
-Core's inspection APIs supply input width, control-flow detection, and IR
-operation counts. Unknown quantum capacity is rejected rather than guessed.
-Qiskit export supplies output metrics and validation outside compilation timing.
-Target-aware export preserves initial/final layout metadata; metrics count the
-physical circuit operations.
-Target compilation timing includes input copying, QC-to-QCO lowering, native
-compilation, and conversion back to a native QC program. Qiskit-built compilation
-inputs are imported inside the timer, so high-level gate synthesis (including
-Hamiltonian evolution) is not performed during untimed setup. Each round uses a
-fresh copy; lazy gate definitions are not cached on the original input.
-OpenQASM parsing, target and payload setup, and Qiskit export for metrics remain
-outside the timer. This matches Qiskit's input/internal/output conversion scope,
-but not its pipeline setup: Core builds its pass pipeline inside each compilation,
-while Qiskit prepares its preset pass manager outside the timer. Reports identify
-this timing boundary as `copy_import_lower_compile_to_qc`; older
-`copy_lower_compile` timings are not directly comparable.
-
-Core's Qiskit target adapter preserves standard gate names,
-including legacy `u1`/`u3`, ordered operation sites, and recognized native gates
-under backend-specific names. Supported fixed angles and bounded two-qubit
-rotations retain their constraints. Unsupported gates and parameter domains are
-omitted with warnings by default and rejected when explicitly selected.
-Symbolic target parameters follow Qiskit's wildcard matching semantics.
-Construction results carry `native_api_comparison = false`; exclude them from
-native SDK API comparisons. Native binding carries `native_api_comparison = true`
-and is not comparable to older Qiskit-binding-plus-import timings.
-MQT's two device circSU2 cases compile and export symbolically, preserving their
-unbound parameters.
-Control flow is checked by Core's compiler and by exporting the compiled output,
-not by benchmark names or source-IR allowlists. Export failures remain visible
-with Core's diagnostic. Successful export does not imply dynamic execution support
-on the modeled backend.
-
-The manipulation basis-change cases use Core's `synthesize_for_target` API,
-including native-basis block synthesis but without routing. The random-Clifford
-case uses the same untimed Clifford canonicalization as Qiskit.
-These cases use the separate `Native basis synthesis` benchmark group and carry
-`translation_only_comparison = false`; do not combine them with translation-only
-timings.
-
-JSON reports include `mqt_build` with the installed Core revision (from VCS
-metadata, or an abbreviated revision from the package version) and the MLIR
-extension's SHA-256. An unavailable revision is `null`, not the requirements pin.
-`mqt_context` records the native mapping defaults and host logical CPU count.
-A `null` trial count means Core selects its available logical CPU count; the
-host count is context, not a measured number of trials. A `null` seed means
-Core's pass defaults are unchanged.
+Reports record the installed Core build, extension hash, and mapping defaults.
+Core inspection supplies input properties; target-aware Qiskit export supplies
+physical output metrics and validation outside compilation timing.
 
 ### [pre-running] Create a skiplist
 
@@ -126,9 +84,6 @@ not a deadline for every later timing round.
 This will create a `skipfile.txt` file for timed-out cases.
 The mere existence of this file skips the tests listed there in the following executions.
 No modifier needed.
-
-The MQT-only `MQT_COMPILE_TIMEOUT` environment variable is no longer supported;
-use `--timeout-skip-list` instead.
 
 For MQT output metrics, gates in every control-flow block are counted
 once, including both branches. These are static counts, not executed gate

@@ -220,15 +220,15 @@ def make_compiler_target(num_qubits, edges, basis_gates=None, name=None):
     return CompilerTarget.from_qiskit(target, name=name)
 
 
-def _compiler_target(program, backend_or_edges):
+def _compiler_target(program, backend):
     """Resolve and validate the immutable target used by timed compilation."""
     logical_qubits = (
         program_num_qubits(program)
         if isinstance(program, (QCProgram, QCOProgram, QuantumCircuit))
         else 0
     )
-    if isinstance(backend_or_edges, CompilerTarget):
-        target = backend_or_edges
+    if isinstance(backend, CompilerTarget):
+        target = backend
         if logical_qubits > target.num_sites:
             raise ValueError(
                 f"Circuit has {logical_qubits} qubits, but target has "
@@ -236,23 +236,14 @@ def _compiler_target(program, backend_or_edges):
             )
         return target
 
-    is_backend = hasattr(backend_or_edges, "num_qubits")
-    if is_backend:
-        num_qubits = int(backend_or_edges.num_qubits)
-        if logical_qubits > num_qubits:
-            raise ValueError(
-                f"Circuit has {logical_qubits} qubits, but backend has {num_qubits}"
-            )
-        return CompilerTarget.from_qiskit(
-            backend_or_edges, operation_names=_basis_gate_names(backend_or_edges)
+    num_qubits = int(backend.num_qubits)
+    if logical_qubits > num_qubits:
+        raise ValueError(
+            f"Circuit has {logical_qubits} qubits, but backend has {num_qubits}"
         )
-
-    edges = [tuple(edge) for edge in backend_or_edges]
-    if not edges:
-        raise ValueError("A non-empty coupling edge list is required")
-    num_qubits = max(max(source, target) for source, target in edges) + 1
-    num_qubits = max(num_qubits, logical_qubits)
-    return make_compiler_target(num_qubits, edges)
+    return CompilerTarget.from_qiskit(
+        backend, operation_names=_basis_gate_names(backend)
+    )
 
 
 @dataclass(frozen=True)
@@ -285,11 +276,11 @@ class PreparedMQTCompile:
         return qco
 
 
-def prepare_mqt_compile(program, backend_or_edges) -> PreparedMQTCompile:
+def prepare_mqt_compile(program, backend) -> PreparedMQTCompile:
     """Validate input and prepare target metadata outside a benchmark timer."""
     if isinstance(program, (QCProgram, QCOProgram)) and not program.is_valid:
         raise ValueError("Cannot compile a consumed MQT program")
-    target = _compiler_target(program, backend_or_edges)
+    target = _compiler_target(program, backend)
     # Describe the output format, not the backend's dynamic execution support.
     # Qiskit export outside the timer checks actual output compatibility.
     environment = TargetEnvironment(
@@ -324,31 +315,3 @@ def _to_qco(program, copy=True):
         # on the original input across benchmark rounds.
         program = program.copy()
     return compile_program(program, output=OutputFormat.QCO)
-
-
-def mqt_compile(program, backend_or_edges, copy=True):
-    """Compile a program for a coupling graph via ``compile_for_target``.
-
-    Parameters:
-        program: QCProgram (or compatible) input
-        backend_or_edges: BackendV2 / FlexibleBackend, ``CompilerTarget``, or
-            iterable of edges.
-        copy: whether to copy the QC program before lowering
-
-    Returns:
-        QCOProgram after target compilation (map + native synthesis)
-
-    Timing note:
-        The default path is **in-process**. Benchmarks use
-        ``prepare_mqt_compile(...).compile().to_qc()`` to time input copying,
-        lowering, ``compile_for_target``, and conversion back to native QC.
-        For Qiskit-built inputs, import and gate-definition synthesis are timed
-        too. Target setup and Qiskit export/metrics/validation stay outside.
-        Core constructs its pass pipeline per call; unlike Qiskit's preset
-        pass manager, this cannot currently be prepared outside the timer.
-
-        Use Benchpress's ``--timeout-skip-list`` for a whole-test preflight
-        outside compilation timing.
-    """
-    setup = prepare_mqt_compile(program, backend_or_edges)
-    return setup.compile(copy=copy)
