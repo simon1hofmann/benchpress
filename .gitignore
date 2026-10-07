@@ -129,4 +129,3 @@ dmypy.json
 .pymon
 .DS_Store
 .benchmarks
-.venv-mqt/

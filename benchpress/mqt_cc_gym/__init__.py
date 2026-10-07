@@ -12,4 +12,4 @@
 
 from benchpress.config import Configuration
 
-Configuration.gym_name = "mqt"
+Configuration.gym_name = "mqt-cc"

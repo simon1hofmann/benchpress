@@ -40,8 +40,8 @@ def get_backend(backend_name: str, gym_name: str):
         )
 
         return get_qpanda_bench_backend(backend_name)
-    elif gym_name == "mqt":
-        from benchpress.mqt_gym.utils.mqt_backend_utils import get_mqt_bench_backend
+    elif gym_name == "mqt-cc":
+        from benchpress.mqt_cc_gym.utils.mqt_backend_utils import get_mqt_bench_backend
 
         return get_mqt_bench_backend(backend_name)
     else:

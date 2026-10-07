@@ -45,8 +45,8 @@ def circuit_validator(circuit, backend):
         from benchpress.qpanda_gym.utils.validation import qpanda_circuit_validation
 
         qpanda_circuit_validation(circuit, backend)
-    elif gym_name == "mqt":
-        from benchpress.mqt_gym.utils.validation import mqt_circuit_validation
+    elif gym_name == "mqt-cc":
+        from benchpress.mqt_cc_gym.utils.validation import mqt_circuit_validation
 
         mqt_circuit_validation(circuit, backend)
     else:

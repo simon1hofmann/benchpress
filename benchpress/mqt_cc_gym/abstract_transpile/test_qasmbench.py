@@ -13,10 +13,10 @@
 
 import pytest
 
-from benchpress.mqt_gym.utils.io import (
-    prepare_mqt_compile,
-    program_num_qubits,
-    program_uses_classical_control,
+from benchpress.mqt_cc_gym.utils.io import (
+    mqt_get_num_qubits,
+    mqt_has_control_flow,
+    mqt_prepare_compile,
 )
 from benchpress.utilities.backends import FlexibleBackend
 from benchpress.utilities.io import output_circuit_properties, qasm_circuit_loader
@@ -42,13 +42,13 @@ class TestWorkoutAbstractQasmBenchSmall(WorkoutAbstractQasmBenchSmall):
     @pytest.mark.parametrize("circ_and_topo", SMALL_CIRC_TOPO, ids=SMALL_NAMES)
     def test_QASMBench_small(self, benchmark, circ_and_topo):
         prog = qasm_circuit_loader(circ_and_topo[0], benchmark)
-        uses_control_flow = program_uses_classical_control(prog)
+        uses_control_flow = mqt_has_control_flow(prog)
         backend = FlexibleBackend(
-            program_num_qubits(prog),
+            mqt_get_num_qubits(prog),
             layout=circ_and_topo[1],
             control_flow=uses_control_flow,
         )
-        setup = prepare_mqt_compile(prog, backend)
+        setup = mqt_prepare_compile(prog, backend)
 
         @benchmark
         def result():
@@ -65,13 +65,13 @@ class TestWorkoutAbstractQasmBenchMedium(WorkoutAbstractQasmBenchMedium):
     @pytest.mark.parametrize("circ_and_topo", MEDIUM_CIRC_TOPO, ids=MEDIUM_NAMES)
     def test_QASMBench_medium(self, benchmark, circ_and_topo):
         prog = qasm_circuit_loader(circ_and_topo[0], benchmark)
-        uses_control_flow = program_uses_classical_control(prog)
+        uses_control_flow = mqt_has_control_flow(prog)
         backend = FlexibleBackend(
-            program_num_qubits(prog),
+            mqt_get_num_qubits(prog),
             layout=circ_and_topo[1],
             control_flow=uses_control_flow,
         )
-        setup = prepare_mqt_compile(prog, backend)
+        setup = mqt_prepare_compile(prog, backend)
 
         @benchmark
         def result():
@@ -88,13 +88,13 @@ class TestWorkoutAbstractQasmBenchLarge(WorkoutAbstractQasmBenchLarge):
     @pytest.mark.parametrize("circ_and_topo", LARGE_CIRC_TOPO, ids=LARGE_NAMES)
     def test_QASMBench_large(self, benchmark, circ_and_topo):
         prog = qasm_circuit_loader(circ_and_topo[0], benchmark)
-        uses_control_flow = program_uses_classical_control(prog)
+        uses_control_flow = mqt_has_control_flow(prog)
         backend = FlexibleBackend(
-            program_num_qubits(prog),
+            mqt_get_num_qubits(prog),
             layout=circ_and_topo[1],
             control_flow=uses_control_flow,
         )
-        setup = prepare_mqt_compile(prog, backend)
+        setup = mqt_prepare_compile(prog, backend)
 
         @benchmark
         def result():

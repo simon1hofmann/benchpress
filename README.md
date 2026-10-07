@@ -23,7 +23,7 @@ Benchpress currently supports the following SDKs:
 - **BQSKit** (https://github.com/BQSKit/bqskit)
 - **Braket** (https://github.com/amazon-braket/amazon-braket-sdk-python)
 - **Cirq** (https://github.com/quantumlib/Cirq)
-- **MQT Core** (https://github.com/munich-quantum-toolkit/core)
+- **MQT Compiler Collection (mqt-cc)** (https://github.com/munich-quantum-toolkit/core)
 - **Qiskit** (https://github.com/Qiskit/qiskit)
 - **Qiskit IBM transpiler** (https://github.com/Qiskit/qiskit-ibm-transpiler)
 - **pyqpanda3** (https://pypi.org/project/pyqpanda3/)

@@ -15,9 +15,9 @@ import pytest
 from qiskit.circuit.library import QuantumVolume, efficient_su2
 
 from benchpress.config import Configuration
-from benchpress.mqt_gym.utils.io import (
-    prepare_mqt_compile,
-    program_num_qubits,
+from benchpress.mqt_cc_gym.utils.io import (
+    mqt_get_num_qubits,
+    mqt_prepare_compile,
 )
 from benchpress.qiskit_gym.circuits import bv_all_ones, trivial_bvlike_circuit
 from benchpress.utilities.io import (
@@ -34,12 +34,12 @@ TWO_Q_GATE = BACKEND.two_q_gate_type
 
 
 def _skip_if_too_large(prog):
-    if program_num_qubits(prog) > BACKEND.num_qubits:
+    if mqt_get_num_qubits(prog) > BACKEND.num_qubits:
         pytest.skip("Circuit too large for given backend.")
 
 
 def _prepare(prog):
-    return prepare_mqt_compile(prog, BACKEND)
+    return mqt_prepare_compile(prog, BACKEND)
 
 
 @benchpress_test_validation

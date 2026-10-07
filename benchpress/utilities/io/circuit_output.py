@@ -57,9 +57,9 @@ def output_circuit_properties(circuit, two_qubit_gate, benchmark):
         from benchpress.qpanda_gym.utils.io import qpanda_output_circuit_properties
 
         qpanda_output_circuit_properties(circuit, two_qubit_gate, benchmark)
-    elif gym_name == "mqt":
-        from benchpress.mqt_gym.utils.io import mqt_output_circuit_properties
+    elif gym_name == "mqt-cc":
+        from benchpress.mqt_cc_gym.utils.io import mqt_record_output_properties
 
-        mqt_output_circuit_properties(circuit, two_qubit_gate, benchmark)
+        mqt_record_output_properties(circuit, two_qubit_gate, benchmark)
     else:
         raise Exception(f"Unsupported gym name {gym_name}")

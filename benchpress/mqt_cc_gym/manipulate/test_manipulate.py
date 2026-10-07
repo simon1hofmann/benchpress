@@ -22,10 +22,10 @@ from qiskit import QuantumCircuit
 from qiskit.quantum_info import Clifford
 
 from benchpress.config import Configuration
-from benchpress.mqt_gym.circuits import multi_control_circuit
-from benchpress.mqt_gym.utils.io import (
-    make_compiler_target,
-    program_num_qubits,
+from benchpress.mqt_cc_gym.circuits import mqt_multi_control_circuit
+from benchpress.mqt_cc_gym.utils.io import (
+    mqt_create_compiler_target,
+    mqt_get_num_qubits,
 )
 from benchpress.utilities.io import qasm_circuit_loader
 from benchpress.workouts.manipulate import WorkoutCircuitManipulate
@@ -41,8 +41,8 @@ def workload_metadata(benchmark):
 
 def _basis_environment(program, gates):
     """Prepare native-basis synthesis without routing."""
-    nq = program_num_qubits(program)
-    target = make_compiler_target(max(nq, 1), basis_gates=gates)
+    nq = mqt_get_num_qubits(program)
+    target = mqt_create_compiler_target(max(nq, 1), basis_gates=gates)
     return TargetEnvironment(
         target, PayloadSpecification(PayloadFormat("openqasm", "3.0"))
     )
@@ -74,7 +74,7 @@ class TestWorkoutCircuitManipulate(WorkoutCircuitManipulate):
     @pytest.mark.benchmark(group="Native basis synthesis")
     def test_multi_control_decompose(self, benchmark):
         """Decompose a multi-control gate into the basis [rx, ry, rz, cz]."""
-        circ = multi_control_circuit(16)
+        circ = mqt_multi_control_circuit(16)
         environment = _basis_environment(circ, ["rx", "ry", "rz", "cz"])
 
         @benchmark

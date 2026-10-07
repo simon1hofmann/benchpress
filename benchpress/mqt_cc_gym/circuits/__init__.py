@@ -14,17 +14,15 @@ from benchpress.qiskit_gym.circuits import dtc_unitary
 
 from .circuits import (
     mqt_bv_all_ones,
+    mqt_multi_control_circuit,
     mqt_QV,
     mqt_random_clifford,
-    multi_control_circuit,
-    to_qc_program,
 )
 
 __all__ = [
     "dtc_unitary",
     "mqt_QV",
     "mqt_bv_all_ones",
+    "mqt_multi_control_circuit",
     "mqt_random_clifford",
-    "multi_control_circuit",
-    "to_qc_program",
 ]

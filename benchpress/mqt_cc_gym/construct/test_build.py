@@ -17,16 +17,15 @@ from qiskit import QuantumCircuit
 from qiskit.circuit.library import efficient_su2
 
 from benchpress.config import Configuration
-from benchpress.mqt_gym.circuits import (
+from benchpress.mqt_cc_gym.circuits import (
     dtc_unitary,
+    mqt_multi_control_circuit,
     mqt_QV,
     mqt_random_clifford,
-    multi_control_circuit,
-    to_qc_program,
 )
-from benchpress.mqt_gym.utils.io import (
-    load_qasm_as_qc_program,
-    program_op_counts,
+from benchpress.mqt_cc_gym.utils.io import (
+    mqt_import_qasm,
+    mqt_import_qiskit,
 )
 from benchpress.utilities.io import output_circuit_properties
 from benchpress.workouts.build import WorkoutCircuitConstruction
@@ -51,7 +50,7 @@ class TestWorkoutCircuitConstruction(WorkoutCircuitConstruction):
         def result():
             return mqt_QV(100, 100, seed=SEED)
 
-        assert program_op_counts(result).get("unitary", 0) == 5000
+        assert result.operation_counts().get("qc.unitary", 0) == 5000
 
     def test_DTC100_set_build(self, benchmark):
         """Build a set of 100Q DTC circuits out to 100 layers."""
@@ -64,7 +63,7 @@ class TestWorkoutCircuitConstruction(WorkoutCircuitConstruction):
             dtc_circ = dtc_unitary(num_qubits, seed=SEED)
             for cycle in range(max_cycles):
                 circuits.append(circuits[cycle].compose(dtc_circ))
-            return to_qc_program(circuits[-1])
+            return mqt_import_qiskit(circuits[-1])
 
         output_circuit_properties(result, "rzz", benchmark)
         assert benchmark.extra_info["output_gate_count_2q"] == 9900
@@ -84,9 +83,9 @@ class TestWorkoutCircuitConstruction(WorkoutCircuitConstruction):
 
         @benchmark
         def result():
-            return multi_control_circuit(ITER_CIRCUIT_WIDTH)
+            return mqt_multi_control_circuit(ITER_CIRCUIT_WIDTH)
 
-        assert program_op_counts(result).get("ctrl", 0) == 15
+        assert result.operation_counts().get("qc.ctrl", 0) == 15
 
     def test_param_circSU2_100_build(self, benchmark):
         """Build a parameterized efficient SU2 circuit (1000 parameters)."""
@@ -94,7 +93,7 @@ class TestWorkoutCircuitConstruction(WorkoutCircuitConstruction):
 
         @benchmark
         def result():
-            return to_qc_program(efficient_su2(N, reps=4, entanglement="circular"))
+            return mqt_import_qiskit(efficient_su2(N, reps=4, entanglement="circular"))
 
         assert result.to_qiskit().num_parameters == 1000
 
@@ -108,7 +107,7 @@ class TestWorkoutCircuitConstruction(WorkoutCircuitConstruction):
             parameter.name: float(value)
             for parameter, value in zip(qc.parameters, values)
         }
-        program = to_qc_program(qc)
+        program = mqt_import_qiskit(qc)
         benchmark.extra_info["workload_api"] = "mqt_native_parameter_binding"
         benchmark.extra_info["native_api_comparison"] = True
 
@@ -128,7 +127,7 @@ class TestWorkoutCircuitConstruction(WorkoutCircuitConstruction):
         @benchmark
         def result():
             path = Configuration.get_qasm_dir("qv") + "qv_N100_12345.qasm"
-            return load_qasm_as_qc_program(path)
+            return mqt_import_qasm(path)
 
         output_circuit_properties(result, "cx", benchmark)
         operations = benchmark.extra_info["output_circuit_operations"]
@@ -142,7 +141,7 @@ class TestWorkoutCircuitConstruction(WorkoutCircuitConstruction):
         @benchmark
         def result():
             path = Configuration.get_qasm_dir("bigint") + "bigint.qasm"
-            return load_qasm_as_qc_program(path)
+            return mqt_import_qasm(path)
 
         output_circuit_properties(result, "cx", benchmark)
         assert result

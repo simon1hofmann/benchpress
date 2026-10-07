@@ -16,9 +16,9 @@ import os
 import pytest
 
 from benchpress.config import Configuration
-from benchpress.mqt_gym.utils.io import (
-    prepare_mqt_compile,
-    program_num_qubits,
+from benchpress.mqt_cc_gym.utils.io import (
+    mqt_get_num_qubits,
+    mqt_prepare_compile,
 )
 from benchpress.utilities.io import output_circuit_properties, qasm_circuit_loader
 from benchpress.utilities.validation import circuit_validator
@@ -41,9 +41,9 @@ class TestWorkoutDeviceFeynman(WorkoutDeviceFeynman):
         """Transpile a feynman benchmark qasm file against a target device"""
         qasm_file = f"{Configuration.get_qasm_dir('feynman')}{filename}"
         prog = qasm_circuit_loader(qasm_file, benchmark)
-        if program_num_qubits(prog) > BACKEND.num_qubits:
+        if mqt_get_num_qubits(prog) > BACKEND.num_qubits:
             pytest.skip("Circuit too large for given backend.")
-        setup = prepare_mqt_compile(prog, BACKEND)
+        setup = mqt_prepare_compile(prog, BACKEND)
 
         @benchmark
         def result():

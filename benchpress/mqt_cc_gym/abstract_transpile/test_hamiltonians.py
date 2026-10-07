@@ -13,9 +13,9 @@
 
 import pytest
 
-from benchpress.mqt_gym.utils.io import (
-    prepare_mqt_compile,
-    program_num_qubits,
+from benchpress.mqt_cc_gym.utils.io import (
+    mqt_get_num_qubits,
+    mqt_prepare_compile,
 )
 from benchpress.utilities.backends import FlexibleBackend
 from benchpress.utilities.io import input_circuit_properties, output_circuit_properties
@@ -37,8 +37,8 @@ class TestWorkoutAbstractHamiltonians(WorkoutAbstractHamiltonians):
             circ_and_topo[0].pop("ham_hamlib_hamiltonian"), benchmark
         )
         input_circuit_properties(prog, benchmark)
-        backend = FlexibleBackend(program_num_qubits(prog), layout=circ_and_topo[1])
-        setup = prepare_mqt_compile(prog, backend)
+        backend = FlexibleBackend(mqt_get_num_qubits(prog), layout=circ_and_topo[1])
+        setup = mqt_prepare_compile(prog, backend)
 
         @benchmark
         def result():

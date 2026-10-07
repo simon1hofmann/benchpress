@@ -9,7 +9,7 @@
 # Any modifications or derivative works of this code must retain this
 # copyright notice, and modified files need to carry a notice indicating
 # that they have been altered from the originals.
-"""Backend helpers for the MQT gym."""
+"""Backend helpers for the mqt-cc gym."""
 
 from qiskit_ibm_runtime import QiskitRuntimeService
 
@@ -18,7 +18,7 @@ from benchpress.qiskit_gym.utils.qiskit_backend_utils import get_ibm_fake_backen
 
 
 def get_mqt_bench_backend(backend_name):
-    """Return an annotated Qiskit BackendV2 for MQT target construction."""
+    """Return an annotated Qiskit BackendV2 for mqt-cc target construction."""
     lowered_name = backend_name.lower()
     if "fake" in lowered_name:
         backend = get_ibm_fake_backend(backend_name)

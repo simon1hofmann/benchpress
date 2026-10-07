@@ -51,10 +51,10 @@ def qasm_circuit_loader(qasm_file, benchmark):
         from benchpress.qpanda_gym.utils.io import qpanda_qasm_loader
 
         circuit = qpanda_qasm_loader(qasm_file, benchmark)
-    elif gym_name == "mqt":
-        from benchpress.mqt_gym.utils.io import mqt_qasm_loader
+    elif gym_name == "mqt-cc":
+        from benchpress.mqt_cc_gym.utils.io import mqt_load_qasm
 
-        circuit = mqt_qasm_loader(qasm_file, benchmark)
+        circuit = mqt_load_qasm(qasm_file, benchmark)
     else:
         raise ValueError(f"Unknown gym name {gym_name}")
     return circuit

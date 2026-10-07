@@ -147,7 +147,7 @@ def pytest_benchmark_update_json(config, benchmarks, output_json):
     """Adds custom sections to the pytest-benchmark report"""
     output_json["mqt_info"] = _reported_versions()
     output_json["mqt_build"] = _core_provenance()
-    options = Configuration.options.get("mqt", {})
+    options = Configuration.options.get("mqt-cc", {})
     defaults = core_mlir.CompilationOptions()
     mapping = defaults.mapping
     output_json["mqt_context"] = {

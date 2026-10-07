@@ -9,17 +9,17 @@
 # Any modifications or derivative works of this code must retain this
 # copyright notice, and modified files need to carry a notice indicating
 # that they have been altered from the originals.
-"""Circuit validation for MQT MLIR programs."""
+"""Circuit validation for mqt-cc MLIR programs."""
 
 from qiskit import QuantumCircuit
 from qiskit.transpiler import Target
 
 
 def mqt_circuit_validation(circuit, backend, *, target=None):
-    """Validate that a compiled MQT program matches backend basis and topology.
+    """Validate that a compiled mqt-cc program matches backend basis and topology.
 
     Conversion failures remain validation failures. Silently falling back to
-    partial IR checks would make MQT results incomparable with other gyms.
+    partial IR checks would make mqt-cc results incomparable with other gyms.
 
     Parameters:
         circuit: ``QCProgram``, ``QCOProgram``, or ``QuantumCircuit``
