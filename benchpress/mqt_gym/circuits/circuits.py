@@ -22,9 +22,6 @@ from benchpress.qiskit_gym.circuits import (
 from benchpress.qiskit_gym.circuits import (
     multi_control_circuit as qiskit_multi_control_circuit,
 )
-from benchpress.qiskit_gym.circuits import (
-    trivial_bvlike_circuit as qiskit_trivial_bvlike_circuit,
-)
 
 
 def to_qc_program(circuit: QuantumCircuit) -> QCProgram:
@@ -47,11 +44,6 @@ def multi_control_circuit(num_qubits) -> QCProgram:
 def mqt_bv_all_ones(N) -> QCProgram:
     """Import the shared Bernstein–Vazirani circuit."""
     return to_qc_program(bv_all_ones(N))
-
-
-def trivial_bvlike_circuit(N) -> QCProgram:
-    """Import the shared BV-like simplification circuit."""
-    return to_qc_program(qiskit_trivial_bvlike_circuit(N))
 
 
 def mqt_random_clifford(num_qubits, seed=12345) -> QCProgram:

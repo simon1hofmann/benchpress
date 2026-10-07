@@ -25,7 +25,6 @@ from benchpress.config import Configuration
 from benchpress.mqt_gym.circuits import multi_control_circuit
 from benchpress.mqt_gym.utils.io import (
     make_compiler_target,
-    mqt_to_qiskit_circuit,
     program_num_qubits,
 )
 from benchpress.utilities.io import qasm_circuit_loader
@@ -43,7 +42,7 @@ def workload_metadata(benchmark):
 def _basis_environment(program, gates):
     """Prepare native-basis synthesis without routing."""
     nq = program_num_qubits(program)
-    target = make_compiler_target(max(nq, 1), None, basis_gates=gates)
+    target = make_compiler_target(max(nq, 1), basis_gates=gates)
     return TargetEnvironment(
         target, PayloadSpecification(PayloadFormat("openqasm", "3.0"))
     )
@@ -82,7 +81,7 @@ class TestWorkoutCircuitManipulate(WorkoutCircuitManipulate):
         def result():
             return _synthesize(circ, environment)
 
-        qc = mqt_to_qiskit_circuit(result, target=environment.target)
+        qc = result.to_qiskit(target=environment.target)
         gate_count_2q = qc.count_ops().get("cz", 0)
         benchmark.extra_info["gate_count_2q"] = gate_count_2q
         assert gate_count_2q > 0
@@ -99,7 +98,7 @@ class TestWorkoutCircuitManipulate(WorkoutCircuitManipulate):
         def result():
             return _synthesize(circ, environment)
 
-        qc = mqt_to_qiskit_circuit(result, target=environment.target)
+        qc = result.to_qiskit(target=environment.target)
         gate_count_2q = qc.count_ops().get("cz", 0)
         benchmark.extra_info["gate_count_2q"] = gate_count_2q
         assert gate_count_2q > 0
@@ -118,7 +117,7 @@ class TestWorkoutCircuitManipulate(WorkoutCircuitManipulate):
         def result():
             return _synthesize(circ, environment)
 
-        qc = mqt_to_qiskit_circuit(result, target=environment.target)
+        qc = result.to_qiskit(target=environment.target)
         benchmark.extra_info["gate_count_2q"] = qc.count_ops().get("cz", 0)
         benchmark.extra_info["depth_2q"] = qc.depth(
             filter_function=lambda x: x.operation.name == "cz"

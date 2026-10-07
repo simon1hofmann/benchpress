@@ -29,7 +29,7 @@ from mqt.core.mlir import (
 from qiskit import QuantumCircuit
 from qiskit.circuit import ControlFlowOp
 from qiskit.circuit.library import PauliEvolutionGate
-from qiskit.transpiler import CouplingMap, Target
+from qiskit.transpiler import Target
 
 from benchpress.config import Configuration
 
@@ -48,33 +48,6 @@ def program_uses_classical_control(program) -> bool:
     if isinstance(program, QuantumCircuit):
         return any(isinstance(item.operation, ControlFlowOp) for item in program.data)
     return program.inspect().has_control_flow
-
-
-def mqt_to_qiskit_circuit(program, *, target=None) -> QuantumCircuit:
-    """Convert an MLIR program through MQT Core's native Qiskit exporter.
-
-    Parameters:
-        program: ``QCProgram`` or ``QCOProgram``
-        target: optional ``CompilerTarget`` used to emit a canonical physical
-            circuit after target compilation
-
-    Returns:
-        Converted ``QuantumCircuit``.
-
-    Raises:
-        TypeError: if ``program`` is not a QC/QCO program.
-        RuntimeError: if native conversion fails.
-    """
-    if not isinstance(program, (QCProgram, QCOProgram)):
-        raise TypeError(
-            f"mqt_to_qiskit_circuit expects QCProgram or QCOProgram, got {type(program)!r}"
-        )
-
-    try:
-        return program.to_qiskit(target=target)
-    except Exception as exc:
-        conversion = "target-aware Qiskit" if target is not None else "Qiskit"
-        raise RuntimeError(f"MQT {conversion} conversion failed: {exc!r}") from exc
 
 
 def mqt_qasm_loader(qasm_file, benchmark):
@@ -135,7 +108,7 @@ def mqt_output_circuit_properties(circuit, two_qubit_gate, benchmark, *, target=
     qc = (
         circuit
         if isinstance(circuit, QuantumCircuit)
-        else mqt_to_qiskit_circuit(circuit, target=target)
+        else circuit.to_qiskit(target=target)
     )
     operations = Counter()
     has_control_flow = False
@@ -197,27 +170,14 @@ def _basis_gate_names(backend=None):
     return gates
 
 
-def make_compiler_target(num_qubits, edges, basis_gates=None, name=None):
-    """Describe an abstract Qiskit target and let Core convert its contract."""
-    num_qubits = int(num_qubits)
-    if edges is not None:
-        edges = [(int(source), int(target)) for source, target in edges]
-        # CouplingMap drops self-loops and grows its width for out-of-range sites.
-        for source, target in edges:
-            if source == target:
-                raise ValueError(f"Coupling edge ({source}, {target}) is a self-loop")
-            if not 0 <= source < num_qubits or not 0 <= target < num_qubits:
-                raise ValueError(
-                    f"Coupling edge ({source}, {target}) is outside "
-                    f"the {num_qubits}-site target"
-                )
+def make_compiler_target(num_qubits, basis_gates=None):
+    """Describe an all-to-all target for native-basis synthesis."""
     gates = list(basis_gates) if basis_gates is not None else _basis_gate_names()
     target = Target.from_configuration(
         basis_gates=list(dict.fromkeys([*gates, "measure", "reset"])),
-        num_qubits=num_qubits,
-        coupling_map=None if edges is None else CouplingMap(list(edges)),
+        num_qubits=int(num_qubits),
     )
-    return CompilerTarget.from_qiskit(target, name=name)
+    return CompilerTarget.from_qiskit(target)
 
 
 def _compiler_target(program, backend):
@@ -262,14 +222,14 @@ class PreparedMQTCompile:
     def target(self):
         return self.environment.target
 
-    def compile(self, *, copy=True):
-        """Compile without repeating validation; copy the input by default."""
+    def compile(self):
+        """Compile without repeating validation; always copy the input."""
         if (
             isinstance(self.program, (QCProgram, QCOProgram))
             and not self.program.is_valid
         ):
             raise ValueError("Cannot compile a consumed MQT program")
-        qco = _to_qco(self.program, copy=copy)
+        qco = _to_qco(self.program)
         if self.normalize_global_phases:
             qco.normalize_global_phases()
         qco.compile_for_target(self.environment)
@@ -304,13 +264,13 @@ def prepare_mqt_compile(program, backend) -> PreparedMQTCompile:
     return PreparedMQTCompile(program, environment, normalize_phases)
 
 
-def _to_qco(program, copy=True):
+def _to_qco(program):
     """Lower a fresh copy inside each timed compilation."""
     if isinstance(program, QCOProgram):
-        return program.copy() if copy else program
+        return program.copy()
     if isinstance(program, QCProgram):
-        return program.to_qco(copy=copy)
-    if isinstance(program, QuantumCircuit) and copy:
+        return program.to_qco(copy=True)
+    if isinstance(program, QuantumCircuit):
         # Import may materialize lazy gate definitions. Do not cache synthesis
         # on the original input across benchmark rounds.
         program = program.copy()

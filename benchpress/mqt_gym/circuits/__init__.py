@@ -18,7 +18,6 @@ from .circuits import (
     mqt_random_clifford,
     multi_control_circuit,
     to_qc_program,
-    trivial_bvlike_circuit,
 )
 
 __all__ = [
@@ -28,5 +27,4 @@ __all__ = [
     "mqt_random_clifford",
     "multi_control_circuit",
     "to_qc_program",
-    "trivial_bvlike_circuit",
 ]

@@ -14,8 +14,6 @@
 from qiskit import QuantumCircuit
 from qiskit.transpiler import Target
 
-from benchpress.mqt_gym.utils.io import mqt_to_qiskit_circuit
-
 
 def mqt_circuit_validation(circuit, backend, *, target=None):
     """Validate that a compiled MQT program matches backend basis and topology.
@@ -39,7 +37,7 @@ def mqt_circuit_validation(circuit, backend, *, target=None):
     qiskit_circuit = (
         circuit
         if isinstance(circuit, QuantumCircuit)
-        else mqt_to_qiskit_circuit(circuit, target=target)
+        else circuit.to_qiskit(target=target)
     )
     backend_ops = set(backend.operation_names) | {"barrier"}
     cmap = backend.coupling_map
