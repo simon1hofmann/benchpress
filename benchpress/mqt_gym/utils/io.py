@@ -11,7 +11,6 @@
 # that they have been altered from the originals.
 """I/O and compile helpers for the MQT gym."""
 
-import re
 from collections import Counter
 from dataclasses import dataclass
 from time import perf_counter
@@ -27,29 +26,12 @@ from mqt.core.mlir import (
     TargetEnvironment,
     compile_program,
 )
-from mqt.core.plugins.qiskit import compiler_target_from_qiskit
 from qiskit import QuantumCircuit
+from qiskit.circuit import ControlFlowOp
 from qiskit.circuit.library import PauliEvolutionGate
 from qiskit.transpiler import CouplingMap, Target
 
 from benchpress.config import Configuration
-
-_STATIC_QUBIT_RE = re.compile(r"qco\.static\s+(\d+)\s*:")
-# Prefer alloc sites so load/store type annotations are not double-counted.
-_MEMREF_ALLOC_QUBIT_RE = re.compile(r"memref\.alloc\(\)[^\n]*memref<(\d+)x!qc\.qubit>")
-_QTENSOR_ALLOC_QUBIT_RE = re.compile(
-    r"qtensor\.alloc\b[^\n]*:\s*tensor<(\d+)x!qco\.qubit>"
-)
-_SCALAR_ALLOC_QUBIT_RE = re.compile(
-    r"^\s*%[-\w.$]+\s*=\s*(?:qc|qco)\.alloc\b", flags=re.MULTILINE
-)
-_MEMREF_QUBIT_RE = re.compile(r"memref<(\d+)x!qc\.qubit>")
-_QTENSOR_QUBIT_RE = re.compile(r"tensor<(\d+)x!qco\.qubit>")
-_CONTROL_FLOW_RE = re.compile(
-    r"^\s*(?:%[^=\n]+\s*=\s*)?"
-    r"(?:(?:scf|cf)\.[A-Za-z_]\w*|qco\.(?:if|index_switch))\b",
-    flags=re.MULTILINE,
-)
 
 
 def load_qasm_as_qc_program(qasm_file=None, *, qasm_str=None) -> QCProgram:
@@ -63,7 +45,9 @@ def load_qasm_as_qc_program(qasm_file=None, *, qasm_str=None) -> QCProgram:
 
 def program_uses_classical_control(program) -> bool:
     """Whether a parsed program contains structured classical control flow."""
-    return _CONTROL_FLOW_RE.search(program.ir) is not None
+    if isinstance(program, QuantumCircuit):
+        return any(isinstance(item.operation, ControlFlowOp) for item in program.data)
+    return program.inspect().has_control_flow
 
 
 def mqt_to_qiskit_circuit(program, *, target=None) -> QuantumCircuit:
@@ -104,58 +88,38 @@ def mqt_qasm_loader(qasm_file, benchmark):
 
 
 def mqt_hamiltonian_circuit(sparse_op, label=None, evo_time=1):
-    """Build a Trotterized Hamiltonian circuit as a QCProgram."""
+    """Keep Hamiltonian evolution opaque until import inside timed compilation."""
     qc = QuantumCircuit(sparse_op.num_qubits)
     qc.append(
         PauliEvolutionGate(sparse_op, time=evo_time, label=label),
         qargs=range(sparse_op.num_qubits),
     )
-    return QCProgram.from_qiskit(qc)
+    return qc
 
 
 def program_num_qubits(program) -> int:
-    """Best-effort qubit count from an MLIR program.
-
-    Sum QC ``memref.alloc`` and QCO ``qtensor.alloc`` register sizes, plus
-    scalar ``qc.alloc`` and ``qco.alloc`` qubits.
-    Fall back to ``qco.static`` indices after target compilation.
-    """
-    ir = program.ir
-    allocs = [
-        int(match.group(1))
-        for pattern in (_MEMREF_ALLOC_QUBIT_RE, _QTENSOR_ALLOC_QUBIT_RE)
-        for match in pattern.finditer(ir)
-    ]
-    scalar_qubits = len(_SCALAR_ALLOC_QUBIT_RE.findall(ir))
-    if allocs or scalar_qubits:
-        return sum(allocs) + scalar_qubits
-    # Fallback if alloc sites are not present in the textual dump.
-    memrefs = [int(m.group(1)) for m in _MEMREF_QUBIT_RE.finditer(ir)]
-    if memrefs:
-        return max(memrefs)
-    qtensors = [int(m.group(1)) for m in _QTENSOR_QUBIT_RE.finditer(ir)]
-    if qtensors:
-        return max(qtensors)
-    statics = {int(m.group(1)) for m in _STATIC_QUBIT_RE.finditer(ir)}
-    if statics:
-        return max(statics) + 1
-    m = re.search(r"qubit\[(\d+)\]", ir)
-    if m:
-        return int(m.group(1))
-    return 0
+    """Return declared quantum capacity; reject unknown widths."""
+    if isinstance(program, QuantumCircuit):
+        return program.num_qubits
+    width = program.inspect().num_qubits
+    if width is None:
+        raise ValueError("MQT program has unknown quantum capacity")
+    return width
 
 
 def program_op_counts(program) -> dict:
-    """Count simple op names appearing in textual MLIR."""
-    ir = program.ir
+    """Count QC/QCO operations using Core's full-module histogram."""
     counts = Counter()
-    for match in re.finditer(r"\b(?:qco|qc)\.([A-Za-z_][A-Za-z0-9_]*)\b", ir):
-        name = match.group(1)
-        if name in ("static", "alloc", "qubit", "ctrl", "yield", "return"):
-            if name == "ctrl":
-                counts["ctrl"] += 1
-            continue
-        counts[name] += 1
+    for full_name, count in program.operation_counts().items():
+        dialect, _, name = full_name.partition(".")
+        if dialect in ("qc", "qco") and name not in (
+            "static",
+            "alloc",
+            "qubit",
+            "yield",
+            "return",
+        ):
+            counts[name] += count
     return dict(counts)
 
 
@@ -253,14 +217,14 @@ def make_compiler_target(num_qubits, edges, basis_gates=None, name=None):
         num_qubits=num_qubits,
         coupling_map=None if edges is None else CouplingMap(list(edges)),
     )
-    return compiler_target_from_qiskit(target, name=name)
+    return CompilerTarget.from_qiskit(target, name=name)
 
 
 def _compiler_target(program, backend_or_edges):
     """Resolve and validate the immutable target used by timed compilation."""
     logical_qubits = (
         program_num_qubits(program)
-        if isinstance(program, (QCProgram, QCOProgram))
+        if isinstance(program, (QCProgram, QCOProgram, QuantumCircuit))
         else 0
     )
     if isinstance(backend_or_edges, CompilerTarget):
@@ -279,7 +243,7 @@ def _compiler_target(program, backend_or_edges):
             raise ValueError(
                 f"Circuit has {logical_qubits} qubits, but backend has {num_qubits}"
             )
-        return compiler_target_from_qiskit(
+        return CompilerTarget.from_qiskit(
             backend_or_edges, operation_names=_basis_gate_names(backend_or_edges)
         )
 
@@ -327,7 +291,7 @@ def prepare_mqt_compile(program, backend_or_edges) -> PreparedMQTCompile:
         raise ValueError("Cannot compile a consumed MQT program")
     target = _compiler_target(program, backend_or_edges)
     # Describe the output format, not the backend's dynamic execution support.
-    # Export the compiled output outside the timer to check actual compatibility.
+    # Qiskit export outside the timer checks actual output compatibility.
     environment = TargetEnvironment(
         target,
         PayloadSpecification(
@@ -355,6 +319,10 @@ def _to_qco(program, copy=True):
         return program.copy() if copy else program
     if isinstance(program, QCProgram):
         return program.to_qco(copy=copy)
+    if isinstance(program, QuantumCircuit) and copy:
+        # Import may materialize lazy gate definitions. Do not cache synthesis
+        # on the original input across benchmark rounds.
+        program = program.copy()
     return compile_program(program, output=OutputFormat.QCO)
 
 
@@ -372,9 +340,12 @@ def mqt_compile(program, backend_or_edges, copy=True):
 
     Timing note:
         The default path is **in-process**. Benchmarks use
-        ``prepare_mqt_compile(...).compile()`` to time input copying, QC-to-QCO
-        lowering, and ``compile_for_target``. Immutable target setup and output
-        export/validation stay outside the timer.
+        ``prepare_mqt_compile(...).compile().to_qc()`` to time input copying,
+        lowering, ``compile_for_target``, and conversion back to native QC.
+        For Qiskit-built inputs, import and gate-definition synthesis are timed
+        too. Target setup and Qiskit export/metrics/validation stay outside.
+        Core constructs its pass pipeline per call; unlike Qiskit's preset
+        pass manager, this cannot currently be prepared outside the timer.
 
         Use Benchpress's ``--timeout-skip-list`` for a whole-test preflight
         outside compilation timing.

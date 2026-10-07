@@ -151,12 +151,12 @@ def pytest_benchmark_update_json(config, benchmarks, output_json):
     defaults = core_mlir.CompilationOptions()
     mapping = defaults.mapping
     output_json["mqt_context"] = {
-        "construction_and_binding": "qiskit_frontend_adapter",
+        "construction_and_binding": "qiskit_construction_mqt_binding",
         "device_circsu2_parameters": "symbolic",
         "normalize_global_phases": options.get("normalize_global_phases", False),
         "native_gates_override": options.get("native_gates"),
         "timeout_scope": "whole_test_preflight",
-        "compilation_timing": "copy_lower_compile",
+        "compilation_timing": "copy_import_lower_compile_to_qc",
         "logical_cpus": os.cpu_count(),
         "compiler_defaults": {
             "seed": defaults.seed,

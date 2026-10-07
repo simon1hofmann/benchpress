@@ -15,16 +15,12 @@ import pytest
 from qiskit.circuit.library import QuantumVolume, efficient_su2
 
 from benchpress.config import Configuration
-from benchpress.mqt_gym.circuits import (
-    mqt_bv_all_ones,
-    to_qc_program,
-    trivial_bvlike_circuit,
-)
 from benchpress.mqt_gym.utils.io import (
     mqt_to_qiskit_circuit,
     prepare_mqt_compile,
     program_num_qubits,
 )
+from benchpress.qiskit_gym.circuits import bv_all_ones, trivial_bvlike_circuit
 from benchpress.utilities.io import (
     input_circuit_properties,
     output_circuit_properties,
@@ -58,7 +54,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         @benchmark
         def result():
-            return setup.compile()
+            return setup.compile().to_qc()
 
         result = mqt_to_qiskit_circuit(result, target=setup.target)
 
@@ -66,14 +62,14 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
         assert circuit_validator(result, BACKEND, target=setup.target)
 
     def test_QV_100_transpile(self, benchmark):
-        prog = to_qc_program(QuantumVolume(100, 100, seed=12345))
+        prog = QuantumVolume(100, 100, seed=12345)
         input_circuit_properties(prog, benchmark)
         _skip_if_too_large(prog)
         setup = _prepare(prog)
 
         @benchmark
         def result():
-            return setup.compile()
+            return setup.compile().to_qc()
 
         result = mqt_to_qiskit_circuit(result, target=setup.target)
 
@@ -81,46 +77,44 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
         assert circuit_validator(result, BACKEND, target=setup.target)
 
     def test_circSU2_89_transpile(self, benchmark):
-        circuit = efficient_su2(89, reps=3, entanglement="circular")
-        prog = to_qc_program(circuit)
+        prog = efficient_su2(89, reps=3, entanglement="circular")
         input_circuit_properties(prog, benchmark)
         _skip_if_too_large(prog)
         setup = _prepare(prog)
 
         @benchmark
         def result():
-            return setup.compile()
+            return setup.compile().to_qc()
 
         result = mqt_to_qiskit_circuit(result, target=setup.target)
-        assert set(result.parameters) == set(circuit.parameters)
+        assert set(result.parameters) == set(prog.parameters)
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)
 
     def test_circSU2_100_transpile(self, benchmark):
-        circuit = efficient_su2(100, reps=3, entanglement="circular")
-        prog = to_qc_program(circuit)
+        prog = efficient_su2(100, reps=3, entanglement="circular")
         input_circuit_properties(prog, benchmark)
         _skip_if_too_large(prog)
         setup = _prepare(prog)
 
         @benchmark
         def result():
-            return setup.compile()
+            return setup.compile().to_qc()
 
         result = mqt_to_qiskit_circuit(result, target=setup.target)
-        assert set(result.parameters) == set(circuit.parameters)
+        assert set(result.parameters) == set(prog.parameters)
         output_circuit_properties(result, TWO_Q_GATE, benchmark, target=setup.target)
         assert circuit_validator(result, BACKEND, target=setup.target)
 
     def test_BV_100_transpile(self, benchmark):
-        prog = mqt_bv_all_ones(100)
+        prog = bv_all_ones(100)
         input_circuit_properties(prog, benchmark)
         _skip_if_too_large(prog)
         setup = _prepare(prog)
 
         @benchmark
         def result():
-            return setup.compile()
+            return setup.compile().to_qc()
 
         result = mqt_to_qiskit_circuit(result, target=setup.target)
 
@@ -138,7 +132,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         @benchmark
         def result():
-            return setup.compile()
+            return setup.compile().to_qc()
 
         result = mqt_to_qiskit_circuit(result, target=setup.target)
 
@@ -155,7 +149,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         @benchmark
         def result():
-            return setup.compile()
+            return setup.compile().to_qc()
 
         result = mqt_to_qiskit_circuit(result, target=setup.target)
 
@@ -170,7 +164,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         @benchmark
         def result():
-            return setup.compile()
+            return setup.compile().to_qc()
 
         result = mqt_to_qiskit_circuit(result, target=setup.target)
 
@@ -187,7 +181,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
 
         @benchmark
         def result():
-            return setup.compile()
+            return setup.compile().to_qc()
 
         result = mqt_to_qiskit_circuit(result, target=setup.target)
 

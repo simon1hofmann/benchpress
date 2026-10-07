@@ -104,11 +104,22 @@ class TestWorkoutCircuitConstruction(WorkoutCircuitConstruction):
         qc = efficient_su2(N, reps=4, entanglement="circular")
         assert qc.num_parameters == 1000
         values = np.linspace(0, 2 * np.pi, qc.num_parameters)
+        bindings = {
+            parameter.name: float(value)
+            for parameter, value in zip(qc.parameters, values)
+        }
+        program = to_qc_program(qc)
+        benchmark.extra_info["workload_api"] = "mqt_native_parameter_binding"
+        benchmark.extra_info["native_api_comparison"] = True
 
         @benchmark
         def result():
-            return to_qc_program(qc.assign_parameters(values))
+            bound = program.copy()
+            bound.bind_parameters(bindings)
+            return bound
 
+        assert len(program.parameters) == 1000
+        assert not result.parameters
         assert result.to_qiskit().num_parameters == 0
 
     def test_QV100_qasm2_import(self, benchmark):

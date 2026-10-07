@@ -40,10 +40,10 @@ Benchpress itself requires no installation.  However running it requires the too
 
 ### MQT Core
 
-The MQT gym uses the `mqt.core.mlir` Compiler Collection from
-[Core PR #2655](https://github.com/munich-quantum-toolkit/core/pull/2655), based on
-main and pinned to `a98ec0bb4` in `requirements-mqt.txt`. This includes the Qiskit
-target adapter. Use Python 3.11+ and an LLVM/MLIR 23.1+ installation, with `MLIR_DIR`
+The MQT gym uses the `mqt.core.mlir` Compiler Collection from Core main,
+pinned to `32a3a05e3` in `requirements-mqt.txt`. Qiskit targets and backends
+are converted with `CompilerTarget.from_qiskit()`.
+Use Python 3.11+ and an LLVM/MLIR 23.1+ installation, with `MLIR_DIR`
 pointing to its `lib/cmake/mlir` directory:
 
 ```bash
@@ -57,18 +57,37 @@ Then run `python -m pytest benchpress/mqt_gym`.
 
 OpenQASM benchmarks use Core's native importer and target compiler. Mapping uses
 Core's defaults, including a trial budget based on the available logical CPUs.
-Circuit construction and parameter binding use the Qiskit frontend. Native
+Circuit construction uses the Qiskit frontend. Parameter binding uses Core's
+native `bind_parameters()` API on a fresh program copy; circuit construction,
+import, and name-to-value mapping stay outside the binding timer.
+Core's inspection APIs supply input width, control-flow detection, and IR
+operation counts. Unknown quantum capacity is rejected rather than guessed.
 Qiskit export supplies output metrics and validation outside compilation timing.
-Target compilation timing includes input copying, QC-to-QCO lowering, and native
-compilation. The original input remains unchanged. Target and payload setup stay
-outside the timer. Core's Qiskit target adapter preserves standard gate names,
-including legacy `u1`/`u3`, and ordered operation sites. Custom operation names,
-unsupported gates, fixed parameters, and restrictive angle bounds are omitted
-with warnings by default and rejected when explicitly selected. Symbolic target
-parameters follow Qiskit's wildcard matching semantics.
-Construction and binding results carry `native_api_comparison = false`; exclude
-them from native SDK API comparisons. MQT's two device circSU2 cases compile and
-export symbolically, preserving their unbound parameters.
+Target-aware export preserves initial/final layout metadata; metrics count the
+physical circuit operations.
+Target compilation timing includes input copying, QC-to-QCO lowering, native
+compilation, and conversion back to a native QC program. Qiskit-built compilation
+inputs are imported inside the timer, so high-level gate synthesis (including
+Hamiltonian evolution) is not performed during untimed setup. Each round uses a
+fresh copy; lazy gate definitions are not cached on the original input.
+OpenQASM parsing, target and payload setup, and Qiskit export for metrics remain
+outside the timer. This matches Qiskit's input/internal/output conversion scope,
+but not its pipeline setup: Core builds its pass pipeline inside each compilation,
+while Qiskit prepares its preset pass manager outside the timer. Reports identify
+this timing boundary as `copy_import_lower_compile_to_qc`; older
+`copy_lower_compile` timings are not directly comparable.
+
+Core's Qiskit target adapter preserves standard gate names,
+including legacy `u1`/`u3`, ordered operation sites, and recognized native gates
+under backend-specific names. Supported fixed angles and bounded two-qubit
+rotations retain their constraints. Unsupported gates and parameter domains are
+omitted with warnings by default and rejected when explicitly selected.
+Symbolic target parameters follow Qiskit's wildcard matching semantics.
+Construction results carry `native_api_comparison = false`; exclude them from
+native SDK API comparisons. Native binding carries `native_api_comparison = true`
+and is not comparable to older Qiskit-binding-plus-import timings.
+MQT's two device circSU2 cases compile and export symbolically, preserving their
+unbound parameters.
 Control flow is checked by Core's compiler and by exporting the compiled output,
 not by benchmark names or source-IR allowlists. Export failures remain visible
 with Core's diagnostic. Successful export does not imply dynamic execution support

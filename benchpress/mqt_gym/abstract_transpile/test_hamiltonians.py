@@ -43,7 +43,7 @@ class TestWorkoutAbstractHamiltonians(WorkoutAbstractHamiltonians):
 
         @benchmark
         def result():
-            return setup.compile()
+            return setup.compile().to_qc()
 
         benchmark.extra_info.update(circ_and_topo[0])
         result = mqt_to_qiskit_circuit(result, target=setup.target)

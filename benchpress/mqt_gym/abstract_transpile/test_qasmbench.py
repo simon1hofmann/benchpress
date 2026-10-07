@@ -53,7 +53,7 @@ class TestWorkoutAbstractQasmBenchSmall(WorkoutAbstractQasmBenchSmall):
 
         @benchmark
         def result():
-            return setup.compile()
+            return setup.compile().to_qc()
 
         result = mqt_to_qiskit_circuit(result, target=setup.target)
 
@@ -78,7 +78,7 @@ class TestWorkoutAbstractQasmBenchMedium(WorkoutAbstractQasmBenchMedium):
 
         @benchmark
         def result():
-            return setup.compile()
+            return setup.compile().to_qc()
 
         result = mqt_to_qiskit_circuit(result, target=setup.target)
 
@@ -103,7 +103,7 @@ class TestWorkoutAbstractQasmBenchLarge(WorkoutAbstractQasmBenchLarge):
 
         @benchmark
         def result():
-            return setup.compile()
+            return setup.compile().to_qc()
 
         result = mqt_to_qiskit_circuit(result, target=setup.target)
 

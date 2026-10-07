@@ -52,7 +52,7 @@ def _basis_environment(program, gates):
 def _synthesize(program, environment):
     result = program.to_qco(copy=True)
     result.synthesize_for_target(environment)
-    return result
+    return result.to_qc()
 
 
 @benchpress_test_validation

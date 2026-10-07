@@ -48,7 +48,7 @@ class TestWorkoutDeviceFeynman(WorkoutDeviceFeynman):
 
         @benchmark
         def result():
-            return setup.compile()
+            return setup.compile().to_qc()
 
         result = mqt_to_qiskit_circuit(result, target=setup.target)
 

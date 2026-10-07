@@ -56,7 +56,7 @@ class TestWorkoutDeviceHamlibHamiltonians(WorkoutDeviceHamlibHamiltonians):
 
         @benchmark
         def result():
-            return setup.compile()
+            return setup.compile().to_qc()
 
         benchmark.extra_info.update(hamiltonian_info)
         result = mqt_to_qiskit_circuit(result, target=setup.target)
