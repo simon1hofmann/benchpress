@@ -9,6 +9,7 @@
 # Any modifications or derivative works of this code must retain this
 # copyright notice, and modified files need to carry a notice indicating
 # that they have been altered from the originals.
+# Modified in 2026 for native instruction validation.
 """Circuit validation for mqt-cc MLIR programs."""
 
 from qiskit import QuantumCircuit
@@ -42,39 +43,38 @@ def mqt_circuit_validation(circuit, backend, *, target=None):
     backend_ops = set(backend.operation_names) | {"barrier"}
     cmap = backend.coupling_map
     edges = None if cmap is None else set(cmap.get_edges())
-    if edges is not None and backend.two_q_gate_type == "cz":
+    two_q_gate_type = backend.two_q_gate_type
+    if edges is not None and two_q_gate_type == "cz":
         edges |= {(target, source) for source, target in edges}
     backend_target = getattr(backend, "target", None)
 
     def validate(block, sites):
         for instruction in block.data:
-            name = instruction.operation.name
+            name = instruction.name
             if name not in backend_ops:
                 raise ValueError(f"Circuit has gates outside backend basis set: {name}")
             physical = tuple(sites[block.find_bit(q).index] for q in instruction.qubits)
-            if (
-                name == backend.two_q_gate_type
-                and edges is not None
-                and physical not in edges
-            ):
+            if name == two_q_gate_type and edges is not None and physical not in edges:
                 raise ValueError(f"2Q gate edge {physical} not in backend topology")
             if isinstance(backend_target, Target) and name != "barrier":
                 supported = backend_target.instruction_supported(
                     operation_name=name,
                     qargs=physical,
-                    parameters=instruction.operation.params,
+                    parameters=instruction.params,
                 )
                 if not supported and name == "cz":
                     supported = backend_target.instruction_supported(
                         operation_name=name,
                         qargs=physical[::-1],
-                        parameters=instruction.operation.params,
+                        parameters=instruction.params,
                     )
                 if not supported:
                     raise ValueError(
                         f"Backend does not support {name} on sites {physical}"
                     )
-            for child in getattr(instruction.operation, "blocks", ()):
+            for child in (
+                instruction.operation.blocks if instruction.is_control_flow() else ()
+            ):
                 validate(child, physical)
 
     validate(qiskit_circuit, tuple(range(qiskit_circuit.num_qubits)))

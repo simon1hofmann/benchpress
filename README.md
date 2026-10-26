@@ -111,6 +111,17 @@ Control-flow gate/depth metrics are marked non-comparable, including when
 compilation removes the control flow. Static nested counts are retained separately.
 
 
+### Sampling protocol for MQT Core and Qiskit
+
+Both gyms use the same calibrated sampler with the pinned pytest-benchmark fork.
+For one iteration per round, the last measured output is reused for reporting;
+previous outputs are released outside the next measured interval. This avoids
+an extra compilation. JSON `extra_info.evaluation_timing` records the protocol
+and calibration/sampling durations. Batched rounds retain the plugin's extra
+return call and record a distinct protocol. Profiling uses the original sampler.
+Rerun both compilers when comparing against results from the original sampler:
+output destruction is no longer part of single-iteration sample timing.
+
 ## :construction: Running the memory tests :construction:
 
 Benchmarking the amount of memory a test uses can be very costly in terms of time and memory.  Here we use the `pytest-memray` plugin.  Calling the memory bechmark looks like:

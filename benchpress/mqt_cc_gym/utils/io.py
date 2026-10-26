@@ -135,7 +135,7 @@ def mqt_record_output_properties(circuit, two_qubit_gate, benchmark, *, target=N
     benchmark.extra_info["output_depth_2q"] = (
         None
         if exclude_comparison
-        else qc.depth(filter_function=lambda x: x.operation.name == two_qubit_gate)
+        else qc.depth(filter_function=lambda x: x.name == two_qubit_gate)
     )
     if exclude_comparison:
         # Other gyms do not consistently count nested blocks. Keep the raw

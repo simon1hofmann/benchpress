@@ -1,3 +1,3 @@
 qiskit>=1.3.0rc1
 qiskit-ibm-runtime
-git+https://github.com/1ucian0/pytest-benchmark.git@timeout-skiplist/forkserver/decorator
+git+https://github.com/1ucian0/pytest-benchmark.git@e33f5934cb462e719b13b8d352ced107f575b4f7

@@ -9,8 +9,17 @@
 # Any modifications or derivative works of this code must retain this
 # copyright notice, and modified files need to carry a notice indicating
 # that they have been altered from the originals.
+# Modified in 2026 for shared benchmark sampling.
+import pytest
 import qiskit
 import qiskit_ibm_runtime
+
+from benchpress.utilities.sampling import configure_sampling
+
+
+@pytest.fixture
+def benchmark(benchmark):
+    return configure_sampling(benchmark)
 
 
 def pytest_report_header(config):

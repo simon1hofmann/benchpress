@@ -26,6 +26,7 @@ import mqt.core.mlir as core_mlir
 import pytest
 
 from benchpress.config import Configuration
+from benchpress.utilities.sampling import configure_sampling
 
 _REPORTED_PACKAGES = {
     "mqt.core": "mqt-core",
@@ -40,7 +41,7 @@ def benchmark(benchmark, request):
     # Native MLIR programs cannot be pickled by the plugin's forkserver preflight.
     if benchmark.timeout_skip_list:
         benchmark._check_timeout = partial(_timeout_preflight, benchmark, request)
-    return benchmark
+    return configure_sampling(benchmark)
 
 
 def _timeout_preflight(benchmark, request, *_args, **_kwargs):

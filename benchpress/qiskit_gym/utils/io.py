@@ -9,8 +9,8 @@
 # Any modifications or derivative works of this code must retain this
 # copyright notice, and modified files need to carry a notice indicating
 # that they have been altered from the originals.
+# Modified in 2026 for benchmark output metrics.
 from time import perf_counter
-from math import pi
 from qiskit import QuantumCircuit
 from qiskit.circuit.library import PauliEvolutionGate
 
@@ -44,5 +44,7 @@ def qiskit_output_circuit_properties(circuit, two_qubit_gate, benchmark):
         two_qubit_gate, 0
     )
     benchmark.extra_info["output_depth_2q"] = circuit.depth(
-        filter_function=lambda x: x.operation.name == two_qubit_gate
+        filter_function=lambda x: (
+            (getattr(x, "name", None) or x.operation.name) == two_qubit_gate
+        )
     )
