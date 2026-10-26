@@ -9,16 +9,14 @@
 # Any modifications or derivative works of this code must retain this
 # copyright notice, and modified files need to carry a notice indicating
 # that they have been altered from the originals.
+# Modified in 2026 for the MQT Core integration.
 """Test summit benchmarks"""
 
 import pytest
 from qiskit.circuit.library import QuantumVolume, efficient_su2
 
 from benchpress.config import Configuration
-from benchpress.mqt_cc_gym.utils.io import (
-    mqt_get_num_qubits,
-    mqt_prepare_compile,
-)
+from benchpress.mqt_cc_gym.utils.io import mqt_prepare_compile
 from benchpress.qiskit_gym.circuits import bv_all_ones, trivial_bvlike_circuit
 from benchpress.utilities.io import (
     input_circuit_properties,
@@ -33,8 +31,8 @@ BACKEND = Configuration.backend()
 TWO_Q_GATE = BACKEND.two_q_gate_type
 
 
-def _skip_if_too_large(prog):
-    if mqt_get_num_qubits(prog) > BACKEND.num_qubits:
+def _skip_if_too_large(benchmark):
+    if benchmark.extra_info["input_num_qubits"] > BACKEND.num_qubits:
         pytest.skip("Circuit too large for given backend.")
 
 
@@ -48,7 +46,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
         prog = qasm_circuit_loader(
             Configuration.get_qasm_dir("qft") + "qft_N100.qasm", benchmark
         )
-        _skip_if_too_large(prog)
+        _skip_if_too_large(benchmark)
         setup = _prepare(prog)
 
         @benchmark
@@ -63,7 +61,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
     def test_QV_100_transpile(self, benchmark):
         prog = QuantumVolume(100, 100, seed=12345)
         input_circuit_properties(prog, benchmark)
-        _skip_if_too_large(prog)
+        _skip_if_too_large(benchmark)
         setup = _prepare(prog)
 
         @benchmark
@@ -78,7 +76,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
     def test_circSU2_89_transpile(self, benchmark):
         prog = efficient_su2(89, reps=3, entanglement="circular")
         input_circuit_properties(prog, benchmark)
-        _skip_if_too_large(prog)
+        _skip_if_too_large(benchmark)
         setup = _prepare(prog)
 
         @benchmark
@@ -93,7 +91,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
     def test_circSU2_100_transpile(self, benchmark):
         prog = efficient_su2(100, reps=3, entanglement="circular")
         input_circuit_properties(prog, benchmark)
-        _skip_if_too_large(prog)
+        _skip_if_too_large(benchmark)
         setup = _prepare(prog)
 
         @benchmark
@@ -108,7 +106,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
     def test_BV_100_transpile(self, benchmark):
         prog = bv_all_ones(100)
         input_circuit_properties(prog, benchmark)
-        _skip_if_too_large(prog)
+        _skip_if_too_large(benchmark)
         setup = _prepare(prog)
 
         @benchmark
@@ -126,7 +124,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
             + "square_heisenberg_N100.qasm",
             benchmark,
         )
-        _skip_if_too_large(prog)
+        _skip_if_too_large(benchmark)
         setup = _prepare(prog)
 
         @benchmark
@@ -143,7 +141,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
             Configuration.get_qasm_dir("qaoa") + "qaoa_barabasi_albert_N100_3reps.qasm",
             benchmark,
         )
-        _skip_if_too_large(prog)
+        _skip_if_too_large(benchmark)
         setup = _prepare(prog)
 
         @benchmark
@@ -158,7 +156,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
     def test_BVlike_simplification_transpile(self, benchmark):
         prog = trivial_bvlike_circuit(100)
         input_circuit_properties(prog, benchmark)
-        _skip_if_too_large(prog)
+        _skip_if_too_large(benchmark)
         setup = _prepare(prog)
 
         @benchmark
@@ -175,7 +173,7 @@ class TestWorkoutDeviceTranspile100Q(WorkoutDeviceTranspile100Q):
             Configuration.get_qasm_dir("clifford") + "clifford_100_12345.qasm",
             benchmark,
         )
-        _skip_if_too_large(prog)
+        _skip_if_too_large(benchmark)
         setup = _prepare(prog)
 
         @benchmark

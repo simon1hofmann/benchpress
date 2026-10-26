@@ -9,6 +9,7 @@
 # Any modifications or derivative works of this code must retain this
 # copyright notice, and modified files need to carry a notice indicating
 # that they have been altered from the originals.
+# Modified in 2026 for the MQT Core integration.
 import json
 import os
 
@@ -88,16 +89,16 @@ def get_qiskit_bench_backend(backend_name):
         backend = get_ibm_fake_backend(backend_name)
     elif "ibm" in lowered_name:
         service = QiskitRuntimeService()
-        backend = service.get_backend(backend_name)
+        backend = service.backend(backend_name)
     else:
         raise ValueError(f"Backend name {backend_name} not recognized.")
 
     op_names = backend.operation_names
     twoq_gates = list(set(op_names).intersection(POSSIBLE_2Q_GATES))
     if len(twoq_gates) > 1:
-        raise Exception("Only one 2Q gate type is currently supported")
+        raise ValueError("Only one 2Q gate type is currently supported")
     elif len(twoq_gates) == 0:
-        raise Exception(f"No gate in {POSSIBLE_2Q_GATES} found!")
+        raise ValueError(f"No gate in {POSSIBLE_2Q_GATES} found!")
     setattr(backend, "two_q_gate_type", twoq_gates[0])
     return backend
 

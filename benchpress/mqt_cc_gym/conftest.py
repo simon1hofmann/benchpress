@@ -9,6 +9,7 @@
 # Any modifications or derivative works of this code must retain this
 # copyright notice, and modified files need to carry a notice indicating
 # that they have been altered from the originals.
+# Modified in 2026 for the MQT Core integration.
 import hashlib
 import json
 import os
@@ -19,6 +20,7 @@ import sys
 from functools import partial
 from importlib.metadata import PackageNotFoundError, distribution, version
 from pathlib import Path
+from time import perf_counter
 
 import mqt.core.mlir as core_mlir
 import pytest
@@ -57,6 +59,7 @@ def _timeout_preflight(benchmark, request, *_args, **_kwargs):
     ]
     environment = os.environ.copy()
     environment.pop("PYTEST_ADDOPTS", None)
+    started = perf_counter()
     with subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -84,6 +87,7 @@ def _timeout_preflight(benchmark, request, *_args, **_kwargs):
             )
         if process.returncode:
             pytest.fail(f"Timeout preflight failed:\n{output}", pytrace=False)
+    benchmark.extra_info["preflight_seconds"] = perf_counter() - started
 
 
 def pytest_configure(config):
@@ -91,6 +95,16 @@ def pytest_configure(config):
         raise pytest.UsageError(
             "MQT_COMPILE_TIMEOUT was removed; use --timeout-skip-list=SECONDS "
             "for a whole-test preflight outside benchmark timing"
+        )
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(items):
+    gyms = {part for item in items for part in item.path.parts if part.endswith("_gym")}
+    if "mqt_cc_gym" in gyms and len(gyms) > 1:
+        raise pytest.UsageError(
+            "Run each Benchpress gym in a separate pytest process; "
+            "the shared loaders and validators select one gym per process"
         )
 
 
@@ -157,6 +171,14 @@ def pytest_benchmark_update_json(config, benchmarks, output_json):
         "timeout_scope": "whole_test_preflight",
         "compilation_timing": "copy_import_lower_compile_to_qc",
         "logical_cpus": os.cpu_count(),
+        "cpu_affinity": sorted(os.sched_getaffinity(0))
+        if hasattr(os, "sched_getaffinity")
+        else None,
+        "mapping_overrides": {
+            name: options[f"mapping_{name}"]
+            for name in ("trials", "iterations")
+            if f"mapping_{name}" in options
+        },
         "compiler_defaults": {
             "seed": defaults.seed,
             "trials": mapping.trials,

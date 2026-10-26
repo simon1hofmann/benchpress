@@ -69,6 +69,47 @@ which will save the file to the CWD in the `.benchmarks` folder
 
 Further details on using `pytest-benchmark` can be found here: https://pytest-benchmark.readthedocs.io/en/latest/usage.html
 
+### MQT Compiler Collection
+
+Install `requirements.txt` and `requirements-mqt-cc.txt` in the same environment.
+The latter pins a source revision of MQT Core main, including native support for
+Qiskit 2.5 and 2.6. Building Core requires its C++/LLVM toolchain; follow
+[Core's development instructions](https://mqt.readthedocs.io/projects/core/en/latest/development.html).
+Update the source pin deliberately when comparing new compiler revisions.
+
+Run one gym per pytest process: shared loaders and validators select their
+implementation when imported. Mixed collection with the MQT gym is rejected.
+For example, a short evaluation with complete JSON dumps is:
+
+```bash
+python -m pytest benchpress/mqt_cc_gym/abstract_transpile/test_qasmbench.py::TestWorkoutAbstractQasmBenchSmall --benchmark-json=mqt-small.json --benchmark-save-data --timeout-skip-list=3600
+python -m pytest benchpress/qiskit_gym/abstract_transpile/test_qasmbench.py::TestWorkoutAbstractQasmBenchSmall --benchmark-json=qiskit-small.json --benchmark-save-data --timeout-skip-list=3600
+```
+
+Replace `Small` with `Medium` or `Large`, select `device_transpile`, or select the
+whole gym. Run the integration checks with `python -m pytest tests/mqt_cc_gym`.
+
+The MQT timer includes input copying/import, QC-to-QCO lowering, target
+compilation and conversion back to QC. Target setup, Qiskit export, metrics and
+validation remain outside the timer. Qiskit inputs are copied each round because
+import can cache lazy gate definitions; omitting the copy would skip synthesis
+in later samples. Exports consume their native output; callers that need to
+reuse it must request `copy=True`.
+
+`mapping_trials` and `mapping_iterations` in `[mqt-cc]` control placement effort.
+The supplied 23 starts and two refinement rounds approximate Qiskit level 2's
+layout effort, but Core has no separate final-routing restart control. They do
+not establish identical search work. Remove these options to use Core defaults.
+JSON reports record overrides, compiler defaults, CPU affinity and the installed
+Core revision and extension hash.
+
+MQT uses a fresh-process, whole-test timeout preflight because native MLIR
+programs cannot be pickled by the benchmark plugin. Its duration is recorded as
+`preflight_seconds`; it is not compilation time. Other gyms use the plugin's
+callable timeout, so equal numeric limits alone do not give equal timeout scope.
+Control-flow gate/depth metrics are marked non-comparable, including when
+compilation removes the control flow. Static nested counts are retained separately.
+
 
 ## :construction: Running the memory tests :construction:
 

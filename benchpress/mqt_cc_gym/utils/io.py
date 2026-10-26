@@ -9,6 +9,7 @@
 # Any modifications or derivative works of this code must retain this
 # copyright notice, and modified files need to carry a notice indicating
 # that they have been altered from the originals.
+# Modified in 2026 for the MQT Core integration.
 """I/O and compile helpers for the mqt-cc gym."""
 
 from collections import Counter
@@ -16,6 +17,7 @@ from dataclasses import dataclass
 from time import perf_counter
 
 from mqt.core.mlir import (
+    CompilationOptions,
     CompilerTarget,
     OutputFormat,
     PayloadFormat,
@@ -27,7 +29,6 @@ from mqt.core.mlir import (
     compile_program,
 )
 from qiskit import QuantumCircuit
-from qiskit.circuit import ControlFlowOp
 from qiskit.circuit.library import PauliEvolutionGate
 from qiskit.transpiler import Target
 
@@ -51,7 +52,7 @@ def mqt_import_qasm(qasm_file=None, *, qasm_str=None) -> QCProgram:
 def mqt_has_control_flow(program) -> bool:
     """Whether a parsed program contains structured classical control flow."""
     if isinstance(program, QuantumCircuit):
-        return any(isinstance(item.operation, ControlFlowOp) for item in program.data)
+        return program.has_control_flow_op()
     return program.inspect().has_control_flow
 
 
@@ -86,8 +87,17 @@ def mqt_get_num_qubits(program) -> int:
 
 
 def mqt_record_input_properties(circuit, benchmark):
-    benchmark.extra_info["input_num_qubits"] = mqt_get_num_qubits(circuit)
-    benchmark.extra_info["input_has_control_flow"] = mqt_has_control_flow(circuit)
+    if isinstance(circuit, QuantumCircuit):
+        width = circuit.num_qubits
+        has_control_flow = mqt_has_control_flow(circuit)
+    else:
+        inspection = circuit.inspect()
+        width = inspection.num_qubits
+        if width is None:
+            raise ValueError("MQT program has unknown quantum capacity")
+        has_control_flow = inspection.has_control_flow
+    benchmark.extra_info["input_num_qubits"] = width
+    benchmark.extra_info["input_has_control_flow"] = has_control_flow
 
 
 def mqt_record_output_properties(circuit, two_qubit_gate, benchmark, *, target=None):
@@ -103,10 +113,12 @@ def mqt_record_output_properties(circuit, two_qubit_gate, benchmark, *, target=N
     def count(block):
         nonlocal has_control_flow
         operations.update(block.count_ops())
+        if not block.has_control_flow_op():
+            return
+        has_control_flow = True
         for instruction in block.data:
             blocks = getattr(instruction.operation, "blocks", ())
             if blocks:
-                has_control_flow = True
                 for child in blocks:
                     count(child)
 
@@ -198,25 +210,26 @@ class _PreparedMQTCompile:
     """Validated input and target for repeated compilation.
 
     The caller must not mutate or consume ``program`` while this setup is in
-    use. Each compilation copies the input; lowering remains inside the timer.
+    use. Each compilation preserves the input; lowering remains inside the timer.
     """
 
     program: object
     environment: TargetEnvironment
+    options: CompilationOptions
 
     @property
     def target(self):
         return self.environment.target
 
     def compile(self):
-        """Compile without repeating validation; always copy the input."""
+        """Compile a fresh native program without repeating target setup."""
         if (
             isinstance(self.program, (QCProgram, QCOProgram))
             and not self.program.is_valid
         ):
             raise ValueError("Cannot compile a consumed MQT program")
         qco = _copy_to_qco(self.program)
-        qco.compile_for_target(self.environment)
+        qco.compile_for_target(self.environment, options=self.options)
         return qco
 
 
@@ -242,7 +255,12 @@ def mqt_prepare_compile(program, backend) -> _PreparedMQTCompile:
             ],
         ),
     )
-    return _PreparedMQTCompile(program, environment)
+    options = CompilationOptions()
+    settings = Configuration.options.get("mqt-cc", {})
+    for name in ("trials", "iterations"):
+        if f"mapping_{name}" in settings:
+            setattr(options.mapping, name, settings[f"mapping_{name}"])
+    return _PreparedMQTCompile(program, environment, options)
 
 
 def _copy_to_qco(program):
@@ -252,7 +270,7 @@ def _copy_to_qco(program):
     if isinstance(program, QCProgram):
         return program.to_qco(copy=True)
     if isinstance(program, QuantumCircuit):
-        # Import may materialize lazy gate definitions. Do not cache synthesis
-        # on the original input across benchmark rounds.
+        # Core may cache lazy definitions on reusable Qiskit inputs. Copy so
+        # every timed round includes their synthesis.
         program = program.copy()
     return compile_program(program, output=OutputFormat.QCO)

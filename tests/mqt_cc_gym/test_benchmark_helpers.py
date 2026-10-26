@@ -1,20 +1,102 @@
 """Regression checks for mqt-cc benchmark metrics, validation, and timeouts."""
 
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
-from qiskit import QuantumCircuit
-from qiskit.circuit.library import CZGate, RZGate, SXGate
-from qiskit.transpiler import Target
-
 from benchpress.mqt_cc_gym.conftest import _timeout_preflight
 from benchpress.mqt_cc_gym.utils.io import (
     mqt_load_qasm,
+    mqt_prepare_compile,
+    mqt_record_input_properties,
     mqt_record_output_properties,
 )
 from benchpress.mqt_cc_gym.utils.validation import mqt_circuit_validation
 from benchpress.utilities.backends import FlexibleBackend
+from qiskit import QuantumCircuit
+from qiskit.circuit.library import CZGate, RZGate, SXGate
+from qiskit.transpiler import Target
+
+
+@pytest.mark.parametrize("gyms", [("mqt_cc_gym",), ("mqt_cc_gym", "qiskit_gym")])
+def test_mixed_gym_collection_is_rejected(gyms):
+    from benchpress.mqt_cc_gym.conftest import pytest_collection_modifyitems
+
+    items = [SimpleNamespace(path=Path("benchpress") / gym / "test.py") for gym in gyms]
+    if len(gyms) == 1:
+        pytest_collection_modifyitems(items)
+    else:
+        with pytest.raises(pytest.UsageError, match="separate pytest process"):
+            pytest_collection_modifyitems(items)
+
+
+def test_prepared_compilation_passes_configured_mapping_effort(monkeypatch):
+    from benchpress.config import Configuration
+    from benchpress.mqt_cc_gym.utils import io
+
+    monkeypatch.setitem(
+        Configuration.options,
+        "mqt-cc",
+        {"mapping_trials": 23, "mapping_iterations": 2},
+    )
+    compiled = SimpleNamespace(compile_for_target=Mock())
+    monkeypatch.setattr(io, "_copy_to_qco", lambda _program: compiled)
+    setup = mqt_prepare_compile(QuantumCircuit(3), FlexibleBackend(3, layout="linear"))
+    assert setup.options.mapping.trials == 23
+    assert setup.options.mapping.iterations == 2
+    assert setup.compile() is compiled
+    compiled.compile_for_target.assert_called_once_with(
+        setup.environment, options=setup.options
+    )
+
+
+@pytest.mark.parametrize("width, control_flow", [(0, False), (3, True)])
+def test_input_metrics_share_one_native_inspection(width, control_flow):
+    inspection = SimpleNamespace(num_qubits=width, has_control_flow=control_flow)
+    program = SimpleNamespace(inspect=Mock(return_value=inspection))
+    benchmark = SimpleNamespace(extra_info={})
+    mqt_record_input_properties(program, benchmark)
+    assert benchmark.extra_info == {
+        "input_num_qubits": width,
+        "input_has_control_flow": control_flow,
+    }
+    program.inspect.assert_called_once_with()
+
+
+def test_input_metrics_reject_unknown_width():
+    program = SimpleNamespace(
+        inspect=lambda: SimpleNamespace(num_qubits=None, has_control_flow=False)
+    )
+    with pytest.raises(ValueError, match="unknown quantum capacity"):
+        mqt_record_input_properties(program, SimpleNamespace(extra_info={}))
+
+
+def test_shared_ibm_backend_lookup_uses_current_runtime_api(monkeypatch):
+    from benchpress.qiskit_gym.utils import qiskit_backend_utils as backends
+
+    backend = SimpleNamespace(operation_names=["sx", "rz", "cz"])
+    service = SimpleNamespace(backend=Mock(return_value=backend))
+    monkeypatch.setattr(backends, "QiskitRuntimeService", lambda: service)
+    assert backends.get_qiskit_bench_backend("ibm_test") is backend
+    service.backend.assert_called_once_with("ibm_test")
+    assert backend.two_q_gate_type == "cz"
+
+
+@pytest.mark.parametrize("operations", [["sx", "rz"], ["cz", "cx"]])
+def test_shared_backend_rejects_ambiguous_two_qubit_basis(monkeypatch, operations):
+    from benchpress.mqt_cc_gym.utils.mqt_backend_utils import get_mqt_bench_backend
+    from benchpress.qiskit_gym.utils import qiskit_backend_utils as backends
+
+    monkeypatch.setattr(
+        backends,
+        "get_ibm_fake_backend",
+        lambda _name: SimpleNamespace(operation_names=operations),
+    )
+    for lookup in (get_mqt_bench_backend, backends.get_qiskit_bench_backend):
+        with pytest.raises(ValueError):
+            lookup("fake_test")
 
 
 def test_nested_control_flow_metrics_and_physical_validation():
@@ -27,6 +109,8 @@ def test_nested_control_flow_metrics_and_physical_validation():
     with otherwise:
         circuit.cz(1, 2)
     benchmark = SimpleNamespace(extra_info={})
+    mqt_record_input_properties(circuit, benchmark)
+    assert benchmark.extra_info["input_has_control_flow"]
     mqt_record_output_properties(circuit, "cz", benchmark)
     assert benchmark.extra_info["output_gate_count_2q"] is None
     assert benchmark.extra_info["output_static_gate_count_2q"] == 2
@@ -47,6 +131,8 @@ def test_straight_line_metrics_remain_comparable_including_zero_counts():
     circuit = QuantumCircuit(2)
     for expected in (0, 1):
         benchmark = SimpleNamespace(extra_info={})
+        mqt_record_input_properties(circuit, benchmark)
+        assert not benchmark.extra_info["input_has_control_flow"]
         mqt_record_output_properties(circuit, "cz", benchmark)
         assert benchmark.extra_info["output_gate_count_2q"] == expected
         assert benchmark.extra_info["output_depth_2q"] == expected
@@ -113,7 +199,7 @@ def test_timeout_preflight_runs_whole_test_outside_timer(
 
     skipfile = tmp_path / "skipfile.txt"
     benchmark = SimpleNamespace(
-        timeout_skip_list=5, skipfile=skipfile, fullname="test_native"
+        timeout_skip_list=5, skipfile=skipfile, fullname="test_native", extra_info={}
     )
     request = SimpleNamespace(
         node=SimpleNamespace(nodeid="test_native.py::test_native"),
@@ -153,6 +239,7 @@ def test_timeout_preflight_runs_whole_test_outside_timer(
     )
     if outcome == "success":
         _timeout_preflight(benchmark, request)
+        assert benchmark.extra_info["preflight_seconds"] >= 0
     else:
         with pytest.raises(
             pytest.fail.Exception,
