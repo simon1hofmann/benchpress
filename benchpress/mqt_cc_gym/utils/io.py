@@ -243,7 +243,7 @@ def mqt_prepare_compile(program, backend) -> _PreparedMQTCompile:
     environment = TargetEnvironment(
         target,
         PayloadSpecification(
-            PayloadFormat("openqasm", "3.0"),
+            PayloadFormat("openqasm", "3.1"),
             capabilities=[
                 ProgramCapability(capability)
                 for capability in (

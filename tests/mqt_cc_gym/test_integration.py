@@ -186,7 +186,7 @@ def test_prepared_compile_reuses_validation_and_preserves_input(monkeypatch, via
         assert environment.target.num_sites == setup.target.num_sites
         payload = environment.payload_specification
         assert payload.format.format_id == "openqasm"
-        assert payload.format.version == "3.0.0"
+        assert payload.format.version == "3.1.0"
         assert payload.format.encoding == PayloadEncoding.TEXT
         assert {capability.capability_id for capability in payload.capabilities} == {
             "forward-branching",
