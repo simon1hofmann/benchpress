@@ -20,14 +20,13 @@ from mqt.core.mlir import (
     CompilationOptions,
     CompilerTarget,
     OutputFormat,
-    PayloadFormat,
     PayloadSpecification,
-    ProgramCapability,
     QCOProgram,
     QCProgram,
     TargetEnvironment,
     compile_program,
 )
+from mqt.core.qdmi import ProgramFormat
 from qiskit import QuantumCircuit
 from qiskit.circuit.library import PauliEvolutionGate
 from qiskit.transpiler import Target
@@ -242,18 +241,7 @@ def mqt_prepare_compile(program, backend) -> _PreparedMQTCompile:
     # Qiskit export outside the timer checks actual output compatibility.
     environment = TargetEnvironment(
         target,
-        PayloadSpecification(
-            PayloadFormat("openqasm", "3.1"),
-            capabilities=[
-                ProgramCapability(capability)
-                for capability in (
-                    ProgramCapability.FORWARD_BRANCHING,
-                    ProgramCapability.COUNTED_ITERATION,
-                    ProgramCapability.CONDITIONAL_LOOP,
-                    ProgramCapability.MULTIWAY_BRANCHING,
-                )
-            ],
-        ),
+        PayloadSpecification.from_program_format(ProgramFormat.QASM3),
     )
     options = CompilationOptions()
     settings = Configuration.options.get("mqt-cc", {})
