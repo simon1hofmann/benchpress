@@ -169,13 +169,17 @@ def _resolve_basis_gates(backend=None):
 
 
 def mqt_create_compiler_target(num_qubits, basis_gates=None):
-    """Describe an all-to-all target for native-basis synthesis."""
+    """Describe native-basis synthesis without device placement or capacity."""
     gates = list(basis_gates) if basis_gates is not None else _resolve_basis_gates()
     target = Target.from_configuration(
         basis_gates=list(dict.fromkeys([*gates, "measure", "reset"])),
         num_qubits=int(num_qubits),
     )
-    return CompilerTarget.from_qiskit(target)
+    return CompilerTarget.for_gate_set(
+        CompilerTarget.NativeOperations.from_qiskit(
+            target, operation_names=target.operation_names
+        )
+    )
 
 
 def _resolve_compiler_target(program, backend):
@@ -187,7 +191,7 @@ def _resolve_compiler_target(program, backend):
     )
     if isinstance(backend, CompilerTarget):
         target = backend
-        if logical_qubits > target.num_sites:
+        if target.has_device_constraints and logical_qubits > target.num_sites:
             raise ValueError(
                 f"Circuit has {logical_qubits} qubits, but target has "
                 f"{target.num_sites}"

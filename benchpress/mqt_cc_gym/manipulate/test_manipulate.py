@@ -13,11 +13,11 @@
 
 import pytest
 from mqt.core.mlir import (
-    PayloadFormat,
     PayloadSpecification,
     QCProgram,
     TargetEnvironment,
 )
+from mqt.core.qdmi import ProgramFormat
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import Clifford
 
@@ -37,14 +37,15 @@ def workload_metadata(benchmark):
     if benchmark.group == "Native basis synthesis":
         benchmark.extra_info["workload_api"] = "mqt_native_basis_synthesis"
         benchmark.extra_info["translation_only_comparison"] = False
+        benchmark.extra_info["synthesis_target"] = "gate_set"
 
 
 def _basis_environment(program, gates):
-    """Prepare native-basis synthesis without routing."""
+    """Prepare native-basis synthesis without device placement."""
     nq = mqt_get_num_qubits(program)
     target = mqt_create_compiler_target(max(nq, 1), basis_gates=gates)
     return TargetEnvironment(
-        target, PayloadSpecification(PayloadFormat("openqasm", "3.0"))
+        target, PayloadSpecification.from_program_format(ProgramFormat.QASM3)
     )
 
 

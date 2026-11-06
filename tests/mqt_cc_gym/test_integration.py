@@ -265,9 +265,12 @@ def test_mqt_compile_rejects_consumed_program(via_qco, prepared):
 
 
 @pytest.mark.parametrize("via_qco", [False, True])
-def test_mqt_compile_accepts_empty_program(monkeypatch, via_qco):
-    """The native compile path accepts an empty typed program."""
-    program = QCProgram.from_qiskit(QuantumCircuit(0))
+@pytest.mark.parametrize("num_qubits", [0, 2])
+def test_mqt_gate_set_compilation_preserves_width(via_qco, num_qubits):
+    circuit = QuantumCircuit(num_qubits)
+    if num_qubits:
+        circuit.x(num_qubits - 1)
+    program = QCProgram.from_qiskit(circuit)
     if via_qco:
         program = program.to_qco()
 
@@ -276,7 +279,9 @@ def test_mqt_compile_accepts_empty_program(monkeypatch, via_qco):
 
     assert isinstance(result, QCOProgram)
     assert result.is_valid
-    assert result.to_qc().to_qiskit().num_qubits == 0
+    converted = result.to_qc().to_qiskit()
+    assert converted.num_qubits == num_qubits
+    assert Operator(converted).equiv(Operator(circuit))
 
 
 def test_mqt_compile_uses_backend_native_gates():
@@ -326,27 +331,32 @@ def test_mqt_backend_omits_unsupported_extras_unless_requested(monkeypatch, extr
         mqt_prepare_compile(program, backend)
 
 
-def test_mqt_manipulation_basis_synthesis_supports_one_qubit_program():
+@pytest.mark.parametrize("num_qubits", [1, 3])
+def test_mqt_manipulation_basis_synthesis_preserves_logical_wires(num_qubits):
     from benchpress.mqt_cc_gym.manipulate.test_manipulate import (
         _basis_environment,
         _synthesize,
     )
 
-    circuit = QuantumCircuit(1)
+    circuit = QuantumCircuit(num_qubits, global_phase=0.25)
     circuit.x(0)
+    if num_qubits == 3:
+        circuit.h(2)
+        circuit.swap(0, 2)  # Qubit 1 remains idle.
     program = QCProgram.from_qiskit(circuit)
     original_ir = program.ir
-    environment = _basis_environment(program, ["rz", "sx", "x"])
+    environment = _basis_environment(program, ["rz", "sx", "x", "cz"])
 
-    assert environment.target.num_sites == 1
-    assert (
-        environment.target.connectivity_kind
-        == CompilerTarget.ConnectivityKind.ALL_TO_ALL
-    )
+    assert not environment.target.has_device_constraints
     for _ in range(2):
         result = _synthesize(program, environment)
         assert isinstance(result, QCProgram)
-        assert Operator(result.to_qiskit()).equiv(Operator(circuit))
+        converted = result.to_qiskit(target=environment.target)
+        assert converted.num_qubits == num_qubits
+        assert converted.layout is None
+        assert Operator(converted).data == pytest.approx(
+            Operator(circuit).data, abs=1e-10
+        )
         assert program.is_valid
         assert program.ir == original_ir
 

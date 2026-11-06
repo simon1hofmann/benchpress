@@ -96,6 +96,11 @@ import can cache lazy gate definitions; omitting the copy would skip synthesis
 in later samples. Exports consume their native output; callers that need to
 reuse it must request `copy=True`.
 
+The three native-basis manipulation workloads use gate-set targets, preserving
+logical wire order and idle qubits without device placement. Their JSON records
+`synthesis_target="gate_set"`. Earlier device-target synthesis measurements have
+a different compilation scope and should not be compared directly.
+
 `mapping_trials` and `mapping_iterations` in `[mqt-cc]` control placement effort.
 The supplied 23 starts and two refinement rounds approximate Qiskit level 2's
 layout effort, but Core has no separate final-routing restart control. They do
